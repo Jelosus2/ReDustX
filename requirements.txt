@@ -1,0 +1,6 @@
+requests
+UnityPy
+protobuf
+pillow
+inquirerpy
+tqdm

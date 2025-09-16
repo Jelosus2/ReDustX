@@ -1,4 +1,3 @@
-import array
 import hashlib
 import json
 import struct
@@ -93,12 +92,40 @@ def write_skeleton_data_to_binary(skeleton_data, output_file):
         # It should actually be a dict for a lot of different strings in the file (attachments, events, etc)
         # Using just the list of attachments in the skin works for BD2 since they don't have events and such so far
         temp = []
+
+        # From skins: attachment names and paths
         for skin in skins:
             for attachment in skin.get('attachments', {}).values():
                 for name, slot in attachment.items():
-                    temp.append(name)
-                    if 'path' in slot:
-                        temp.append(slot['path'])
+                    if name:
+                        temp.append(name)
+                    if isinstance(slot, dict):
+                        if 'path' in slot and slot['path']:
+                            temp.append(slot['path'])
+                        # Linked mesh references may use skin/parent names via string refs
+                        if 'skin' in slot and slot['skin']:
+                            temp.append(slot['skin'])
+                        if 'parent' in slot and slot['parent']:
+                            temp.append(slot['parent'])
+
+        # From slots: default attachment names
+        for slot in slots:
+            att = slot.get('attachment')
+            if att:
+                temp.append(att)
+
+        # From animations: slot attachment timeline names
+        animations = skeleton_data.get('animations', {})
+        for anim in animations.values():
+            slots_timelines = anim.get('slots', {})
+            for _slot_name, timelines in slots_timelines.items():
+                attach_frames = timelines.get('attachment', [])
+                for frame in attach_frames:
+                    name = frame.get('name')
+                    if name:
+                        temp.append(name)
+
+        # Build unique list preserving order
         strings_name_to_index = {name: index for index, name in enumerate(dict.fromkeys(temp))}
             
         write_varint(binary_file, len(strings_name_to_index))
@@ -280,21 +307,62 @@ def write_skeleton_data_to_binary(skeleton_data, output_file):
         for name, animation in animations.items():
             write_string(binary_file, name)
             write_animation(binary_file, name, animation)
-        
-            
 
+def count_animation_timelines(animation):
+    count = 0
+
+    slots = animation.get('slots', {})
+    if isinstance(slots, dict):
+        for timelines in slots.values():
+            if isinstance(timelines, dict):
+                count += len(timelines)
+
+    bones = animation.get('bones', {})
+    if isinstance(bones, dict):
+        for timelines in bones.values():
+            if isinstance(timelines, dict):
+                count += len(timelines)
+
+    iks = animation.get('ik', {})
+    if isinstance(iks, dict):
+        count += len(iks)
+
+    transforms = animation.get('transform', {})
+    if isinstance(transforms, dict):
+        count += len(transforms)
+
+    paths = animation.get('path', {})
+    if isinstance(paths, dict):
+        for timelines in paths.values():
+            if isinstance(timelines, dict):
+                count += len(timelines)
+
+    attachments = animation.get('attachments', {})
+    if isinstance(attachments, dict):
+        for skin in attachments.values():
+            if not isinstance(skin, dict):
+                continue
+            for slot in skin.values():
+                if not isinstance(slot, dict):
+                    continue
+                for attachment in slot.values():
+                    if isinstance(attachment, dict):
+                        count += len(attachment)
+
+    draw_order = animation.get('drawOrder')
+    if draw_order:
+        count += 1
+
+    events = animation.get('events')
+    if events:
+        count += 1
+
+    return count
 
 def write_animation(binary_file, name, animation):
-    timeline_count = 0
-    for key, value in animation.items():
-        if key == "drawOrder" or key == "events":
-            timeline_count += 1
-        elif key == "ik" or key == "transform":
-            timeline_count += len(value)
-        else:
-            timeline_count += sum(len(v) for v in value.values())
+    timeline_count = count_animation_timelines(animation)
     write_varint(binary_file, timeline_count)
-    
+
     # Slots timelines
     slots = animation.get('slots', {})
     write_varint(binary_file, len(slots))
@@ -371,7 +439,8 @@ def write_animation(binary_file, name, animation):
                         write_byte(binary_file, timeline_curve_type.get('bezier'))
                         for c in curve:
                             write_float(binary_file, c)
-            # rgb2
+
+            # rgb2 (RGB + RGB)
             elif timeline_type == 4:
                 bezier = int(sum(len(f.get('curve')) for f in frames if f.get('curve') and not isinstance(f.get('curve'), str)) / 4)
                 write_varint(binary_file, bezier)
@@ -390,14 +459,20 @@ def write_animation(binary_file, name, animation):
                         write_byte(binary_file, timeline_curve_type.get('bezier'))
                         for c in curve:
                             write_float(binary_file, c)
-            # alpha
+
+            # alpha (binary stores values as 1 byte 0..255)
             elif timeline_type == 5:
                 bezier = int(sum(len(f.get('curve')) for f in frames if f.get('curve') and not isinstance(f.get('curve'), str)) / 4)
                 write_varint(binary_file, bezier)
                 for index in range(len(frames)):
                     frame = frames[index]
                     write_float(binary_file, frame.get('time', 0.0))
-                    write_float(binary_file, frame.get('value', 0.0))
+                    val = frame.get('value', 0.0)
+                    try:
+                        b = int(max(0.0, min(1.0, float(val))) * 255 + 0.5)
+                    except Exception:
+                        b = 0
+                    write_byte(binary_file, b)
                     if index == 0:
                         continue
                     previous_frame = frames[index - 1]
@@ -522,9 +597,9 @@ def write_animation(binary_file, name, animation):
             write_float(binary_file, next_frame.get('time', 0.0))
             write_float(binary_file, next_frame.get('mixRotate', 1.0))
             write_float(binary_file, next_frame.get('mixX', 1.0))
-            write_float(binary_file, next_frame.get('mixY', transform[0].get('mixX', 1.0)))
+            write_float(binary_file, next_frame.get('mixY', next_frame.get('mixX', 1.0)))
             write_float(binary_file, next_frame.get('mixScaleX', 1.0))
-            write_float(binary_file, next_frame.get('mixScaleY', transform[0].get('mixScaleX', 1.0)))
+            write_float(binary_file, next_frame.get('mixScaleY', next_frame.get('mixScaleX', 1.0)))
             write_float(binary_file, next_frame.get('mixShearY', 1.0))
             
             curve = frame.get('curve', 'linear')
