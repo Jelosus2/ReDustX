@@ -42,23 +42,6 @@ asset_bundles_modded_folder_path = os.path.join(get_base_path(), asset_bundles_m
 
 skeleton_data_bundles_paths = []
 
-
-def check_rdx_version():
-    response = requests.get("https://data.bd2.org/rdxversion")
-
-    # Check if the request was successful
-    if response.status_code == 200:
-        # Extract the version from the response (assuming it's returned as JSON)
-        response_data = response.json()
-    
-        # Assuming the response JSON contains a 'version' field
-        server_version = response_data.get("version", None)
-
-        return server_version
-    
-    return RDXVersion
-
-
 def get_cdn_version(quality):
     url = "https://mt.bd2.pmang.cloud/MaintenanceInfo"
 
@@ -562,7 +545,6 @@ def clear():
         
 
 if __name__ == "__main__":
-    last_version = check_rdx_version()
     while True:
         clear()
         
@@ -572,11 +554,6 @@ if __name__ == "__main__":
         print()
         print(f" THIS SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND.")
         print()
-        if last_version != RDXVersion:
-            print()
-            print(f" \033[33mA new version of ReDustX ({last_version}) is available.")
-            print(f" Check out the Ko-Fi or the Discord server to update.\033[0m")
-            print()
         print()
         
         # Create the prompt for user input

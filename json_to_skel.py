@@ -26,8 +26,12 @@ skins_name_to_index = {}
 
 # Main function to convert JSON file to binary
 def json_to_skel(json_file, output_file):
-    with open(json_file, 'r') as f:
-        skeleton_data = json.load(f)
+    try:
+        with open(json_file, "r", encoding="utf-8") as f:
+            skeleton_data = json.load(f)
+    except UnicodeDecodeError:
+        with open(json_file, "r", encoding="utf-8-sig") as f:
+            skeleton_data = json.load(f)
     
     if not skeleton_data.get('skeleton').get('spine').startswith("4.1"):
         raise Exception("Cannot convert this file, unsupported Spine version.")
@@ -905,22 +909,16 @@ def write_int(binary_file, value):
 def write_varint(binary_file, value, optimize_positive=True):
     if not optimize_positive:
         value = (value << 1) ^ (value >> 31)
+    value &= 0xFFFFFFFF
 
-    iterations = 0
-    max_iterations = 10
-    while iterations < max_iterations:
-        iterations += 1
+    while True:
         byte = value & 0x7F
         value >>= 7
         if value:
-            binary_file.write(struct.pack('B', byte | 0x80))  # Set continuation bit
+            binary_file.write(struct.pack('B', byte | 0x80))
         else:
-            binary_file.write(struct.pack('B', byte))  # No continuation bit
+            binary_file.write(struct.pack('B', byte))
             break
-    else:
-        raise ValueError(f"Invalid varint: {value}")
-        
-            
 
 def write_short_array(binary_file, short_array):
     # Write the length of the array as a varint
