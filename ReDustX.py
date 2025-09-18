@@ -10,12 +10,11 @@ import struct
 import sys
 import UnityPy
 import webbrowser
-from google.protobuf import text_format
-from google.protobuf.message import DecodeError
 from InquirerPy import prompt
 from PIL import Image
 from tqdm import tqdm
 from json_to_skel import json_to_skel
+from pathlib import Path
 
 import maintenance_info_pb2
 
@@ -23,22 +22,17 @@ RDXVersion = '1.0.0'
 UnityPy.config.FALLBACK_VERSION_WARNED = True
 UnityPy.config.FALLBACK_UNITY_VERSION = '2022.3.22f1'
 
-def get_base_path():
-    if getattr(sys, 'frozen', False):  # If running as a bundled exe
-        return os.path.dirname(sys.executable)
-    else:
-        return os.path.dirname(__file__)  # If running as a .py script
-
-
 # Folders and paths
+base_path = Path(__file__).parent
+
 mods_folder = "mods/"
-mods_folder_path = os.path.join(get_base_path(), mods_folder)
+mods_folder_path = base_path.joinpath(mods_folder)
 
 asset_bundles_folder = "bundles/"
-asset_bundles_folder_path = os.path.join(get_base_path(), asset_bundles_folder)
+asset_bundles_folder_path = base_path.joinpath(asset_bundles_folder)
 
 asset_bundles_modded_folder = "bundles_modded/"
-asset_bundles_modded_folder_path = os.path.join(get_base_path(), asset_bundles_modded_folder)
+asset_bundles_modded_folder_path = base_path.joinpath(asset_bundles_modded_folder)
 
 skeleton_data_bundles_paths = []
 
@@ -65,21 +59,19 @@ def get_cdn_version(quality):
 
     return response.market_info.bundle_version if quality == 'HD' else response.market_info.bundle_version_sd
 
-
-
 def download_catalog(quality, version):
     # Define the filename based on the quality
-    filename = os.path.join(get_base_path(), f"catalog_{version}.json")
+    filename = base_path.joinpath(f"catalog_{version}.json")
 
     # Check if the file exists in the current directory
-    if os.path.isfile(filename):
+    if filename.exists():
         return 0
     
     pattern = 'catalog_*.json'
-    for root, dirs, files in os.walk(get_base_path()):
+    for root, dirs, files in os.walk(base_path):
         for file in files:
             if fnmatch.fnmatch(file, pattern):
-                file_path = os.path.join(root, file)
+                file_path = Path(root).joinpath(file)
                 try:
                     os.remove(file_path)
                 except:
@@ -99,8 +91,6 @@ def download_catalog(quality, version):
         return 1
     else:
         return -1
-
-
 
 # Helper functions to simulate SerializationUtilities
 class SerializationUtilities:
@@ -148,8 +138,6 @@ def read_object_from_byte_array(key_data, data_index):
         
         else:
             return object_type
-            
-        return None
 
     except Exception as ex:
         print(f"Exception: {ex}")
@@ -158,7 +146,7 @@ def read_object_from_byte_array(key_data, data_index):
 
 def parse_catalog(version, new_catalog):
     # Define the filename based on the quality
-    catalog = os.path.join(get_base_path(), f"catalog_{version}.json")
+    catalog = base_path.joinpath(f"catalog_{version}.json")
 
     with open(catalog, 'r', encoding='utf-8') as file:
         data = json.load(file)
@@ -214,13 +202,13 @@ def parse_catalog(version, new_catalog):
         
         # {"m_Hash":"eeedd74194fc5b7e39a5141f6c9a208c","m_Crc":0,"m_Timeout":30,"m_ChunkedTransfer":false,"m_RedirectLimit":5,"m_RetryCount":5,"m_BundleName":"ecdfc15b23580667fa12c0d51a05db61","m_AssetLoadMode":0,"m_BundleSize":51931760,"m_UseCrcForCachedBundles":true,"m_UseUWRForLocalBundles":false,"m_ClearOtherCachedVersionsWhenLoaded":true}
         data = read_object_from_byte_array(extra_data, num5)
-        bundle_path = os.path.join(asset_bundles_folder_path, data['m_BundleName'], data['m_Hash'], '__data')
-        skeleton_data_bundles_paths.append(bundle_path)
+        bundle_path = asset_bundles_folder_path.joinpath(data['m_BundleName'], data['m_Hash'], '__data')
+        skeleton_data_bundles_paths.append(str(bundle_path))
         
-        if os.path.isfile(bundle_path):
+        if bundle_path.exists():
             if catalog == 0:
                 continue
-            if os.path.getsize(bundle_path) == data['m_BundleSize']:
+            if bundle_path.stat().st_size == data['m_BundleSize']:
                 continue
         
         # Download the bundle
@@ -228,7 +216,7 @@ def parse_catalog(version, new_catalog):
         url = f"https://cdn.bd2.pmang.cloud/ServerData/Android/{quality}/{version}/{bundle_name}"    
         response = requests.get(url, stream=True)    
         
-        os.makedirs(os.path.dirname(bundle_path), exist_ok=True)
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
         with open(bundle_path, 'wb') as file:
             # Create a progress bar
             with tqdm(desc=f" Downloading {bundle_name}...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=data['m_BundleSize']) as pbar:
@@ -239,9 +227,6 @@ def parse_catalog(version, new_catalog):
                         # Update the progress bar with the size of the chunk
                         pbar.update(len(chunk))
         print("")
-            
-            
-    
 
 def parse_asset_bundles():
     asset_bundles = {}
@@ -260,14 +245,13 @@ def parse_asset_bundles():
             env = UnityPy.load(file_path)
             bundle_content = {
                 path: obj for path, obj in env.container.items()
-                if obj.type.name in ["TextAsset", "Texture2D"] and hasattr(obj, 'path')
+                if obj.type.name in ["TextAsset", "Texture2D"] and hasattr(obj, 'path_id')
             }
             # Only add the bundle to the dictionary if it has valid assets
             if bundle_content:
                 asset_bundles[file_path] = bundle_content
                 
     return asset_bundles
-
 
 def parse_mods():
     rename_rules = {
@@ -288,12 +272,13 @@ def parse_mods():
                 if file.endswith(".modfile"):
                     continue
                 
-                mod_file_path = os.path.join(root, file)
+                mod_root = Path(root)
+                mod_file_path = mod_root.joinpath(file)
                 
                 if file.endswith(".json"):
                     skel_file = file.replace(".json", ".skel")
-                    if not os.path.isfile(os.path.join(root, skel_file)):
-                        if not os.path.isfile(os.path.join(root, skel_file + ".bytes")):
+                    if not mod_root.joinpath(skel_file).exists():
+                        if not mod_root.joinpath(skel_file + ".bytes").exists():
                             json_to_skel_files[mod_file_path] = file
                     continue
 
@@ -311,6 +296,7 @@ def parse_mods():
                         # mod_file_path = os.path.join(root, file)
                         break
                 
+                mod_file_path = str(mod_file_path)
                 if file in mods_files:
                     if mods_files[file] not in duplicate_files:
                         duplicate_files[mods_files[file]] = []
@@ -319,7 +305,6 @@ def parse_mods():
                 mods_files[file] = mod_file_path
 
     return mods_files, duplicate_files, json_to_skel_files
-
 
 def associate_mods_with_bundles(asset_bundles, mods_files):
     matched_mods = {}
@@ -345,13 +330,11 @@ def associate_mods_with_bundles(asset_bundles, mods_files):
         
     return matched_mods
 
-
 def clear_modded_folder():
     """Delete all files in the modded folder."""
-    if os.path.exists(asset_bundles_modded_folder_path):
+    if asset_bundles_modded_folder_path.exists():
         shutil.rmtree(asset_bundles_modded_folder_path)  # Delete the folder and all its contents
-    os.makedirs(asset_bundles_modded_folder_path)  # Recreate the folder
-
+    asset_bundles_modded_folder_path.mkdir(parents=True)  # Recreate the folder
 
 # Function to replace files in the asset bundle with the corresponding mod files
 def replace_files_in_bundles(matched_mods):
@@ -396,20 +379,18 @@ def replace_files_in_bundles(matched_mods):
                             print()
                             raise(e)
                     
-
         # Get the relative path from the original bundles folder
-        relative_path = os.path.relpath(bundle_path, asset_bundles_folder_path)
+        relative_path = Path(bundle_path).relative_to(asset_bundles_folder_path)
         # Create the full path in the modded folder
-        modded_bundle_path = os.path.join(get_base_path(), asset_bundles_modded_folder, relative_path)
+        modded_bundle_path = base_path.joinpath(asset_bundles_modded_folder, relative_path)
         # Ensure the directories exist
-        modded_folder = os.path.dirname(modded_bundle_path)
-        os.makedirs(modded_folder, exist_ok=True)
+        modded_folder = modded_bundle_path.parent
+        modded_folder.mkdir(parents=True, exist_ok=True)
         
         with open(modded_bundle_path, "wb") as f:
             f.write(env.file.save("original"))
             
     return errors
-
 
 def convert_json_mods(skip_blurb=False):
     if not skip_blurb:
@@ -435,8 +416,8 @@ def convert_json_mods(skip_blurb=False):
         if conversion == "Cancel":
             return
         
-    if not os.path.exists(mods_folder_path):
-        os.makedirs(mods_folder_path, exist_ok=True)
+    if not mods_folder_path.exists():
+        mods_folder_path.mkdir(parents=True, exist_ok=True)
         
     json_to_skel_files = {}
     
@@ -446,11 +427,12 @@ def convert_json_mods(skip_blurb=False):
             if not file.endswith(".json"):
                 continue
             
-            mod_file_path = os.path.join(root, file)
+            mod_root = Path(root)
+            mod_file_path = mod_root.joinpath(file)
             skel_file = file.replace(".json", ".skel")
-            if not os.path.isfile(os.path.join(root, skel_file)):
-                if not os.path.isfile(os.path.join(root, skel_file + ".bytes")):
-                    json_to_skel_files[mod_file_path] = file
+            if not mod_root.joinpath(skel_file).exists():
+                if not mod_root.joinpath(skel_file + ".bytes").exists():
+                    json_to_skel_files[str(mod_file_path)] = file
                     
     if not json_to_skel_files:
         print()
@@ -500,7 +482,6 @@ def convert_json_mods(skip_blurb=False):
     print()
     input(" Press any key...")
     return
-        
 
 def show_help():
     clear()
@@ -517,7 +498,6 @@ def show_help():
     print(" 4. Enjoy.")
     print()
     input(" Press any key...")
-        
 
 def show_about():
     clear()
@@ -534,7 +514,6 @@ def show_about():
     print(" You can also join the Discord server for BrownDustX and ReDustX: https://discord.gg/wNMuw2uFVW")
     print()
     input(" Press any key...")
-    
 
 def clear():
     # Check the platform
@@ -596,11 +575,10 @@ if __name__ == "__main__":
         print()
         
         # Check necessary folders
-        if not os.path.exists(asset_bundles_folder_path):
-            os.makedirs(asset_bundles_folder_path, exist_ok=True)
-        if not os.path.exists(mods_folder_path):
-            os.makedirs(mods_folder_path, exist_ok=True)
-            
+        if not asset_bundles_folder_path.exists():
+            asset_bundles_folder_path.mkdir(parents=True, exist_ok=True)
+        if not mods_folder_path.exists():
+            mods_folder_path.mkdir(parents=True, exist_ok=True)        
     
         mods_files, duplicate_files, json_to_skel_files = parse_mods()
     
@@ -652,7 +630,6 @@ if __name__ == "__main__":
                 continue
             elif conversion == "Cancel":
                 continue
-
         
         print()
         # User input regarding Quality
@@ -687,8 +664,6 @@ if __name__ == "__main__":
         
         skeleton_data_bundles_paths = []
         parse_catalog(cdn_version, catalog)
-        
-
 
         asset_bundles = parse_asset_bundles()
     

@@ -1,3 +1,7 @@
 __pycache__/
 venv/
 mods/
+bundles/
+bundles_modded/
+test.py
+catalog_*.json
