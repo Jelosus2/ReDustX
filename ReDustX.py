@@ -379,16 +379,16 @@ def replace_files_in_bundles(matched_mods):
                             print()
                             raise(e)
                     
-        # Get the relative path from the original bundles folder
-        relative_path = Path(bundle_path).relative_to(asset_bundles_folder_path)
-        # Create the full path in the modded folder
-        modded_bundle_path = base_path.joinpath(asset_bundles_modded_folder, relative_path)
-        # Ensure the directories exist
-        modded_folder = modded_bundle_path.parent
-        modded_folder.mkdir(parents=True, exist_ok=True)
-        
-        with open(modded_bundle_path, "wb") as f:
-            f.write(env.file.save("original"))
+            # Get the relative path from the original bundles folder
+            relative_path = Path(bundle_path).relative_to(asset_bundles_folder_path)
+            # Create the full path in the modded folder
+            modded_bundle_path = base_path.joinpath(asset_bundles_modded_folder, relative_path)
+            # Ensure the directories exist
+            modded_folder = modded_bundle_path.parent
+            modded_folder.mkdir(parents=True, exist_ok=True)
+            
+            with open(modded_bundle_path, "wb") as f:
+                f.write(env.file.save("original"))
             
     return errors
 
