@@ -353,7 +353,7 @@ def replace_files_in_bundles(matched_mods):
                             # Replace content with the mod file
                             if obj.type.name == "Texture2D":
                                 try:
-                                    new_texture = Image.open(mod_filepath).convert(mode='RGBA')  # Open image only once
+                                    new_texture = Image.open(mod_filepath)  # Open image only once
                                 except IOError as e:
                                     errors.append(f" Failed to open image file {mod_filepath}")
                                     continue  # Skip if there's an issue with the image
@@ -363,11 +363,10 @@ def replace_files_in_bundles(matched_mods):
 
                                 # argb_bytes = new_texture.tobytes("raw", "RGBA")
                                 # data.image_data = argb_bytes
-                                data.set_image(new_texture, UnityPy.enums.TextureFormat.RGBA32)
-                                data.m_TextureSettings.m_FilterMode = 1
+                                data.set_image(new_texture, UnityPy.enums.TextureFormat.ASTC_RGB_8x8)
                             elif obj.type.name == "TextAsset":
                                 with open(mod_filepath, "rb") as f:
-                                    data.script = f.read()
+                                    data.m_Script = f.read().decode(errors="surrogateescape")
                             else:
                                 continue
                             pbar.update(1)
@@ -388,7 +387,7 @@ def replace_files_in_bundles(matched_mods):
             modded_folder.mkdir(parents=True, exist_ok=True)
             
             with open(modded_bundle_path, "wb") as f:
-                f.write(env.file.save("original"))
+                f.write(env.file.save(packer="lz4"))
             
     return errors
 
