@@ -19,7 +19,6 @@ from pathlib import Path
 import maintenance_info_pb2
 
 RDXVersion = '1.0.0'
-UnityPy.config.FALLBACK_VERSION_WARNED = True
 UnityPy.config.FALLBACK_UNITY_VERSION = '2022.3.22f1'
 
 # Folders and paths
@@ -144,7 +143,7 @@ def read_object_from_byte_array(key_data, data_index):
 
     return None
 
-def parse_catalog(version, new_catalog):
+def parse_catalog(version):
     # Define the filename based on the quality
     catalog = base_path.joinpath(f"catalog_{version}.json")
 
@@ -176,25 +175,25 @@ def parse_catalog(version, new_catalog):
         o = read_object_from_byte_array(key_array, offset)
         keys[idx] = o
 
-    extra_data = base64.b64decode(data['m_ExtraDataString']);
-    entry_data = base64.b64decode(data['m_EntryDataString']);
-    number_of_entries = read_int32_from_byte_array(entry_data, 0);
+    extra_data = base64.b64decode(data['m_ExtraDataString'])
+    entry_data = base64.b64decode(data['m_EntryDataString'])
+    number_of_entries = read_int32_from_byte_array(entry_data, 0)
     index = 4
     for m in range(number_of_entries):
-        #num1 = read_int32_from_byte_array(entry_data, index);
-        index += 4;
-        #num2 = read_int32_from_byte_array(entry_data, index);
-        index += 4;
-        #num3 = read_int32_from_byte_array(entry_data, index);
-        index += 4;
-        #num4 = read_int32_from_byte_array(entry_data, index);
-        index += 4;
-        num5 = read_int32_from_byte_array(entry_data, index);
-        index += 4;
-        num6 = read_int32_from_byte_array(entry_data, index);
-        index += 4;
-        #num7 = read_int32_from_byte_array(entry_data, index);
-        index += 4;
+        #num1 = read_int32_from_byte_array(entry_data, index)
+        index += 4
+        #num2 = read_int32_from_byte_array(entry_data, index)
+        index += 4
+        #num3 = read_int32_from_byte_array(entry_data, index)
+        index += 4
+        #num4 = read_int32_from_byte_array(entry_data, index)
+        index += 4
+        num5 = read_int32_from_byte_array(entry_data, index)
+        index += 4
+        num6 = read_int32_from_byte_array(entry_data, index)
+        index += 4
+        #num7 = read_int32_from_byte_array(entry_data, index)
+        index += 4
 
         key = str(keys[num6])
         if not key.startswith("common-skeleton-data") or not key.endswith("bundle"):
@@ -230,17 +229,11 @@ def parse_catalog(version, new_catalog):
 
 def parse_asset_bundles():
     asset_bundles = {}
-    all_files = []
     
-    #file_count = sum(len(files) for _, _, files in os.walk(asset_bundles_folder_path))
     file_count = len(skeleton_data_bundles_paths)
     with tqdm(desc=" Parsing bundles...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=file_count) as pbar:
-        #for root, _, files in os.walk(asset_bundles_folder_path):
-            #for file in files:
         for file_path in skeleton_data_bundles_paths:
             pbar.update(1)
-            #file_path = os.path.join(root, file)
-            #if file_path.endswith("__data"):
             # Load asset bundle and filter for TextAsset or Texture2D
             env = UnityPy.load(file_path)
             bundle_content = {
@@ -285,15 +278,8 @@ def parse_mods():
                 # Check if the file's extension matches any renaming rule
                 for ext, new_ext in rename_rules.items():
                     if file.endswith(ext):
-                        # old_file_path = os.path.join(root, file)
                         new_file = file.replace(ext, new_ext)
-                        # new_file_path = os.path.join(root, new_file)
-                        # if os.path.exists(new_file_path):
-                        #     os.remove(new_file_path)
-                        # os.rename(old_file_path, new_file_path)
-                        # print(f" \033[33mRenamed {old_file_path} to {new_file_path}\033[0m")
                         file = new_file  # Update the file variable to the new name
-                        # mod_file_path = os.path.join(root, file)
                         break
                 
                 mod_file_path = str(mod_file_path)
@@ -360,9 +346,6 @@ def replace_files_in_bundles(matched_mods):
 
                                 data.m_Width = new_texture.width
                                 data.m_Height = new_texture.height
-
-                                # argb_bytes = new_texture.tobytes("raw", "RGBA")
-                                # data.image_data = argb_bytes
                                 
                                 data.set_image(new_texture, UnityPy.enums.TextureFormat.RGBA32)
                             elif obj.type.name == "TextAsset":
@@ -382,7 +365,7 @@ def replace_files_in_bundles(matched_mods):
             # Get the relative path from the original bundles folder
             relative_path = Path(bundle_path).relative_to(asset_bundles_folder_path)
             # Create the full path in the modded folder
-            modded_bundle_path = base_path.joinpath(asset_bundles_modded_folder, relative_path)
+            modded_bundle_path = asset_bundles_modded_folder_path.joinpath(relative_path)
             # Ensure the directories exist
             modded_folder = modded_bundle_path.parent
             modded_folder.mkdir(parents=True, exist_ok=True)
@@ -663,7 +646,7 @@ if __name__ == "__main__":
             continue
         
         skeleton_data_bundles_paths = []
-        parse_catalog(cdn_version, catalog)
+        parse_catalog(cdn_version)
 
         asset_bundles = parse_asset_bundles()
     
