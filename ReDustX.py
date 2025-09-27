@@ -594,7 +594,7 @@ if __name__ == "__main__":
             print(" You should check with the original modder if they provide .skel files for those mods.")
             print(" However, ReDustX comes with a JSON to SKEL Converter (beta version).")
             print()
-            # User input regarding Quality
+
             convert_choices = [
                 {
                     "type": "list",
@@ -623,11 +623,11 @@ if __name__ == "__main__":
                 "message": "Which quality do you play with on your phone?\n  -------------  ",
                 "pointer": "  >",
                 "qmark": " ",
-                "choices": ["HD", "SD", "Cancel"],
+                "choices": ["FHD", "HD", "SD", "Cancel"],
             }
         ]
         answer = prompt(quality_choices)
-        quality = answer["quality"] or 'HD'
+        quality = "HD" if answer["quality"] == "FHD" else answer["quality"] or 'HD'
         
         if quality == "Cancel":
             continue
