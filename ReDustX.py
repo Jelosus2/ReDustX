@@ -81,7 +81,7 @@ def download_catalog(quality, version):
     url = f"https://cdn.bd2.pmang.cloud/ServerData/Android/{quality}/{version}/catalog_alpha.json"
     
     # Download the file
-    print(f" Downloading new catalog...")
+    print(" Downloading new catalog...")
     response = requests.get(url)
 
     if response.status_code == 200:
@@ -144,6 +144,8 @@ def read_object_from_byte_array(key_data, data_index):
     return None
 
 def parse_catalog(version):
+    bundle_names = []
+
     # Define the filename based on the quality
     catalog = base_path.joinpath(f"catalog_{version}.json")
 
@@ -204,12 +206,11 @@ def parse_catalog(version):
         bundle_path = asset_bundles_folder_path.joinpath(data['m_BundleName'], data['m_Hash'], '__data')
         skeleton_data_bundles_paths.append(str(bundle_path))
         
+        bundle_names.append(data['m_BundleName'])
+
         if bundle_path.exists():
-            if catalog == 0:
-                continue
-            if bundle_path.stat().st_size == data['m_BundleSize']:
-                continue
-        
+            continue
+
         # Download the bundle
         bundle_name = re.sub(r'_[a-f0-9]+(?=\.bundle)', '', key)    
         url = f"https://cdn.bd2.pmang.cloud/ServerData/Android/{quality}/{version}/{bundle_name}"    
@@ -226,6 +227,14 @@ def parse_catalog(version):
                         # Update the progress bar with the size of the chunk
                         pbar.update(len(chunk))
         print("")
+
+    return bundle_names
+
+def clean_old_bundles(old_bundle_names, new_bundle_names):
+    print(" Cleaning old bundles...")
+    for old_name in old_bundle_names:
+        if not old_name in new_bundle_names:
+            shutil.rmtree(asset_bundles_folder_path.joinpath(old_name))
 
 def parse_asset_bundles():
     asset_bundles = {}
@@ -646,7 +655,11 @@ if __name__ == "__main__":
             continue
         
         skeleton_data_bundles_paths = []
-        parse_catalog(cdn_version)
+        old_bundle_names = [f.name for f in asset_bundles_folder_path.iterdir() if f.is_dir()]
+        new_bundle_names = parse_catalog(cdn_version)
+
+        if catalog == 1:
+            clean_old_bundles(old_bundle_names, new_bundle_names)
 
         asset_bundles = parse_asset_bundles()
     
