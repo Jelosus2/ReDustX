@@ -2,6 +2,8 @@ __pycache__/
 venv/
 mods/
 bundles/
+astc_encoder/
+tmp/
 bundles_modded/
 test.py
 catalog_*.json
