@@ -143,50 +143,56 @@ def read_object_from_byte_array(key_data, data_index):
 
     return None
 
-def parse_catalog(version):
-    bundle_names = []
-
-    # Define the filename based on the quality
+def parse_catalog(version, required_assets):
     catalog = base_path.joinpath(f"catalog_{version}.json")
+
+    required_assets = {asset.lower() for asset in (required_assets or [])}
+    asset_hits = {}
+    bundle_names = set()
+    resolved_paths = set()
 
     with open(catalog, 'r', encoding='utf-8') as file:
         data = json.load(file)
-        
+
     # Decode base64 data for bucket data
     bucket_array = base64.b64decode(data['m_BucketDataString'])
     num_buckets = struct.unpack_from('<i', bucket_array, 0)[0]  # Read number of buckets
+    dependency_map = [None] * num_buckets
     data_offsets = []
     index = 4
 
-    # Extract dataOffset for each bucket (skip entries)
     for i in range(num_buckets):
-        data_offset = read_int32_from_byte_array(bucket_array, index)  # Read dataOffset
-        index += 4  # Skip past the dataOffset
-        num_entries = read_int32_from_byte_array(bucket_array, index)  # Read the number of entries
-        index += 4 + num_entries * 4  # Skip past the entries (each entry is 4 bytes)
-    
-        # Store the dataOffset
+        data_offset = read_int32_from_byte_array(bucket_array, index)
+        index += 4
+        num_entries = read_int32_from_byte_array(bucket_array, index)
+        index += 4
+        entries = []
+        for _ in range(num_entries):
+            entry_index = read_int32_from_byte_array(bucket_array, index)
+            index += 4
+            entries.append(entry_index)
         data_offsets.append(data_offset)
+        dependency_map[i] = entries
 
-    # Decode key data (which is used to populate array6)
     key_array = base64.b64decode(data['m_KeyDataString'])
     keys = [None] * len(data_offsets)
-
-    # Extract objects using dataOffset from key data
     for idx, offset in enumerate(data_offsets):
-        o = read_object_from_byte_array(key_array, offset)
-        keys[idx] = o
+        keys[idx] = read_object_from_byte_array(key_array, offset)
 
     extra_data = base64.b64decode(data['m_ExtraDataString'])
     entry_data = base64.b64decode(data['m_EntryDataString'])
     number_of_entries = read_int32_from_byte_array(entry_data, 0)
     index = 4
+
+    bundles = {}
+    entries = []
+
     for m in range(number_of_entries):
         #num1 = read_int32_from_byte_array(entry_data, index)
         index += 4
-        #num2 = read_int32_from_byte_array(entry_data, index)
+        num2 = read_int32_from_byte_array(entry_data, index)
         index += 4
-        #num3 = read_int32_from_byte_array(entry_data, index)
+        num3 = read_int32_from_byte_array(entry_data, index)
         index += 4
         #num4 = read_int32_from_byte_array(entry_data, index)
         index += 4
@@ -197,38 +203,77 @@ def parse_catalog(version):
         #num7 = read_int32_from_byte_array(entry_data, index)
         index += 4
 
-        key = str(keys[num6])
-        if not key.startswith("common-skeleton-data") or not key.endswith("bundle"):
+        entries.append({ 'dependency_index': num3 })
+
+        raw_key = keys[num6] if num6 < len(keys) else ''
+        key = str(raw_key).lower()
+
+        if num2 == 1 and num5 >= 0:
+            temp_data = read_object_from_byte_array(extra_data, num5)
+            bundle_path = asset_bundles_folder_path.joinpath(temp_data['m_BundleName'], temp_data['m_Hash'], '__data')
+            bundles[m] = {
+                'bundle_name': temp_data['m_BundleName'],
+                'path': str(bundle_path),
+                'bundle_key': str(raw_key),
+                'size': temp_data['m_BundleSize']
+            }
             continue
-        
-        # {"m_Hash":"eeedd74194fc5b7e39a5141f6c9a208c","m_Crc":0,"m_Timeout":30,"m_ChunkedTransfer":false,"m_RedirectLimit":5,"m_RetryCount":5,"m_BundleName":"ecdfc15b23580667fa12c0d51a05db61","m_AssetLoadMode":0,"m_BundleSize":51931760,"m_UseCrcForCachedBundles":true,"m_UseUWRForLocalBundles":false,"m_ClearOtherCachedVersionsWhenLoaded":true}
-        data = read_object_from_byte_array(extra_data, num5)
-        bundle_path = asset_bundles_folder_path.joinpath(data['m_BundleName'], data['m_Hash'], '__data')
-        skeleton_data_bundles_paths.append(str(bundle_path))
-        
-        bundle_names.append(data['m_BundleName'])
 
-        if bundle_path.exists():
+        if not key or not required_assets:
             continue
 
-        # Download the bundle
-        bundle_name = re.sub(r'_[a-f0-9]+(?=\.bundle)', '', key)    
-        url = f"https://cdn.bd2.pmang.cloud/ServerData/Android/{quality}/{version}/{bundle_name}"    
-        response = requests.get(url, stream=True)    
-        
-        bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(bundle_path, 'wb') as file:
-            # Create a progress bar
-            with tqdm(desc=f" Downloading {bundle_name}...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=data['m_BundleSize']) as pbar:
-                # Write the file in chunks
-                for chunk in response.iter_content(chunk_size=1024 * 64):
-                    if chunk:  # filter out keep-alive new chunks
-                        file.write(chunk)
-                        # Update the progress bar with the size of the chunk
-                        pbar.update(len(chunk))
-        print("")
+        asset_name = Path(key).name.lower()
+        if asset_name in required_assets and asset_name not in asset_hits:
+            asset_hits[asset_name] = (m, str(raw_key))
 
-    return bundle_names
+    def resolve_bundle_info(entry_index):
+        if entry_index in bundles:
+            return bundles[entry_index]
+        if entry_index < 0 or entry_index >= len(entries):
+            return None
+        dep_idx = entries[entry_index]['dependency_index']
+        if dep_idx < 0 or dep_idx >= len(dependency_map):
+            return None
+        deps = dependency_map[dep_idx] or []
+        for dep_entry in deps:
+            info = bundles.get(dep_entry)
+            if info:
+                return info
+        return None
+
+    for asset_name in sorted(required_assets):
+        entry_info = asset_hits.get(asset_name)
+        if not entry_info:
+            continue
+
+        entry_index, bundle_key = entry_info
+        info = resolve_bundle_info(entry_index)
+        if not info:
+            continue
+
+        bundle_names.add(info['bundle_name'])
+        bundle_path = Path(info['path'])
+
+        if not bundle_path.exists():
+            download_name = info['bundle_key'] or bundle_path.name
+            download_name = re.sub(r'_[a-f0-9]+(?=\.bundle)', '', download_name)
+            url = f"https://cdn.bd2.pmang.cloud/ServerData/Android/{quality}/{version}/{download_name}"
+            response = requests.get(url, stream=True)
+
+            bundle_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(bundle_path, 'wb') as file:
+                with tqdm(desc=f" Downloading {download_name}...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=info['size']) as pbar:
+                    for chunk in response.iter_content(chunk_size=1024 * 64):
+                        if chunk:
+                            file.write(chunk)
+                            pbar.update(len(chunk))
+            print("")
+
+        if bundle_path not in resolved_paths:
+            skeleton_data_bundles_paths.append(str(bundle_path))
+            resolved_paths.add(bundle_path)
+
+    return list(bundle_names)
 
 def clean_old_bundles(old_bundle_names, new_bundle_names):
     print(" Cleaning old bundles...")
@@ -656,7 +701,7 @@ if __name__ == "__main__":
         
         skeleton_data_bundles_paths = []
         old_bundle_names = [f.name for f in asset_bundles_folder_path.iterdir() if f.is_dir()]
-        new_bundle_names = parse_catalog(cdn_version)
+        new_bundle_names = parse_catalog(cdn_version, mods_files.keys())
 
         if catalog == 1:
             clean_old_bundles(old_bundle_names, new_bundle_names)
