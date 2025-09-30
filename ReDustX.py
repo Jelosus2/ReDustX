@@ -382,14 +382,14 @@ def clear_modded_folder():
         shutil.rmtree(asset_bundles_modded_folder_path)  # Delete the folder and all its contents
     asset_bundles_modded_folder_path.mkdir(parents=True)  # Recreate the folder
 
-def astc_encode_image(file_path):
+def astc_encode_image(file_path, block):
     file_path = Path(file_path)
     output_path = astc_encode_tmp_folder_path.joinpath(file_path.name.replace(file_path.suffix, ".astc"))
 
     if not astc_encode_tmp_folder_path.exists():
         astc_encode_tmp_folder_path.mkdir(parents=True, exist_ok=True)
 
-    args = [str(astc_encoder_binary_path), "-cs", str(file_path), str(output_path), "8x8", "-medium", "-yflip", "-decode_unorm8", "-silent"]
+    args = [str(astc_encoder_binary_path), "-cs", str(file_path), str(output_path), block, "-medium", "-yflip", "-decode_unorm8", "-silent"]
     try:
         subprocess.check_call(args)
 
@@ -405,7 +405,7 @@ def astc_encode_image(file_path):
         raise(e)
 
 # Function to replace files in the asset bundle with the corresponding mod files
-def replace_files_in_bundles(matched_mods):
+def replace_files_in_bundles(matched_mods, quality):
     clear_modded_folder()
     
     errors = []
@@ -426,18 +426,16 @@ def replace_files_in_bundles(matched_mods):
                                     errors.append(f" Failed to open image file {mod_filepath}")
                                     continue  # Skip if there's an issue with the image
 
-                                astc_data = astc_encode_image(mod_filepath)
+                                astc_data = astc_encode_image(mod_filepath, "4x4" if quality == "HD" else "8x8")
                                 data.m_Width = new_texture.width
                                 data.m_Height = new_texture.height
-                                data.m_TextureFormat = UnityPy.enums.TextureFormat.ASTC_RGB_8x8
+                                data.m_TextureFormat = UnityPy.enums.TextureFormat.ASTC_RGB_4x4 if quality == "HD" else UnityPy.enums.TextureFormat.ASTC_RGB_8x8
                                 data.image_data = astc_data
                                 data.m_CompleteImageSize = len(astc_data)
                                 data.m_MipCount = 1
                                 data.m_StreamData.offset = 0
                                 data.m_StreamData.size = 0
                                 data.m_StreamData.path = ""
-                                
-                                #data.set_image(new_texture, UnityPy.enums.TextureFormat.RGBA32)
                             elif obj.type.name == "TextAsset":
                                 with open(mod_filepath, "rb") as f:
                                     data.m_Script = f.read().decode(errors="surrogateescape")
@@ -760,7 +758,7 @@ if __name__ == "__main__":
             input(" Press any key...")
             continue
 
-        errors = replace_files_in_bundles(matched_mods)
+        errors = replace_files_in_bundles(matched_mods, quality)
         
         if errors:
             print()
