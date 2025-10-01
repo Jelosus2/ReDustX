@@ -471,7 +471,7 @@ def convert_json_mods(skip_blurb=False):
         print(" You should check with the original modder if they provide .skel files for those mods.")
         print(" However, ReDustX comes with a JSON to SKEL Converter (this tool, still in beta).")
         print()
-        # User input regarding Quality
+
         convert_choices = [
             {
                 "type": "list",
@@ -578,9 +578,11 @@ def show_about():
     print(" It automates the replacement of modded textures and animation files into the game's asset bundles.")
     print(" This is useful to repack modded characters and cutscenes to be used on the Android version of the game.")
     print()
-    print(" This tool was written by Synae, the creator of BrownDustX.")
+    print(" This tool was written by Jelosus1, the creator of BrownDust2 L2D Viewer website and Synae, the creator of BrownDustX.")
+    print(" B2D L2D Viewer is a website where you can check and download character animations.")
     print(" BDX is a non-intrusive PC Client Mod for Brown Dust 2 which respects the game's fairness.")
     print()
+    print(" You can support Jelosus1 and their work on Ko-Fi: https://www.ko-fi.com/jelosus1")
     print(" You can support Synae and their work on Ko-Fi: https://www.ko-fi.com/synae")
     print(" You can also join the Discord server for BrownDustX and ReDustX: https://discord.gg/wNMuw2uFVW")
     print()
@@ -600,7 +602,7 @@ if __name__ == "__main__":
         
         print()
         print(f" ReDustX v{RDXVersion}")
-        print(f" Created by Synae (https://www.ko-fi.com/synae)")
+        print(f" Created by Jelosus1 (https://www.ko-fi.com/jelosus1) and Synae (https://www.ko-fi.com/synae)")
         print()
         print(f" THIS SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND.")
         print()
@@ -633,6 +635,7 @@ if __name__ == "__main__":
             continue
         elif answer["action"] == "Ko-Fi":
             webbrowser.open("https://www.ko-fi.com/synae")
+            webbrowser.open("https://www.ko-fi.com/jelosus1")
             continue
         elif answer["action"] == "Discord":
             webbrowser.open("https://discord.gg/wNMuw2uFVW")
