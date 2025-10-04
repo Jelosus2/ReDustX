@@ -4,58 +4,54 @@ setlocal EnableExtensions
 rem Change to the directory of this script
 cd /d "%~dp0"
 
-set "VENV_DIR=venv"
+set "PY_EMB_DIR=python"
+set "PY_EXE=%PY_EMB_DIR%\python.exe"
 set "REQ_FILE=requirements.txt"
 set "ENTRY_FILE=ReDustX.py"
 
-echo === ReDustX setup ===
+echo === ReDustX embedded setup ===
 
-rem Detect a usable Python 3
-set "PY_CMD="
-where py >nul 2>nul
-if %errorlevel%==0 (
-    set "PY_CMD=py -3"
-) else (
-    rem Fall back to python if available and not the WindowsApps stub
-    for /f "usebackq delims=" %%P in (`where python 2^>nul`) do (
-        echo %%P | findstr /I /C:"\WindowsApps\python.exe" >nul
-        if errorlevel 1 (
-            set "PY_CMD=\"%%P\""
-            goto :got_python
-        )
-    )
-)
-
-:got_python
-if not defined PY_CMD (
+rem Ensure embedded Python exists
+if not exist "%PY_EXE%" (
     echo.
-    echo Python 3 is not installed or not on PATH.
-    echo Please install Python 3 and ensure you check:
-    echo   "Add python.exe to PATH" during setup.
-    echo Download: https://www.python.org/downloads/
+    echo Embedded Python not found at "%PY_EXE%".
+    echo Please ensure the "python" folder is present in this directory.
     echo.
     pause
     exit /b 1
 )
 
-rem Create virtual environment if it doesn't exist
-if not exist "%VENV_DIR%\Scripts\python.exe" (
-    echo Creating virtual environment in "%VENV_DIR%"...
-    %PY_CMD% -m venv "%VENV_DIR%"
-    if errorlevel 1 (
-        echo Failed to create virtual environment.
-        pause
-        exit /b 1
-    )
-)
-
-rem Install the requirements
+rem Install requirements into the embedded environment
 if exist "%REQ_FILE%" (
-    "%VENV_DIR%\Scripts\python.exe" -m pip install -r "%REQ_FILE%"
-    if errorlevel 1 (
-        echo Failed to install dependencies from %REQ_FILE%.
-        pause
-        exit /b 1
+    if exist "%PY_EMB_DIR%\Scripts\pip.exe" (
+        "%PY_EMB_DIR%\Scripts\pip.exe" install --upgrade --no-warn-script-location --disable-pip-version-check -r "%REQ_FILE%"
+        if errorlevel 1 (
+            echo.
+            echo Failed to install dependencies from %REQ_FILE%.
+            echo.
+            pause
+            exit /b 1
+        )
+    ) else (
+        echo.
+        echo pip was not found in "%PY_EMB_DIR%\Scripts". Attempting to bootstrap with get-pip.py...
+        "%PY_EXE%" "%PY_EMB_DIR%\get-pip.py"
+        if errorlevel 1 (
+            echo.
+            echo Failed to bootstrap pip.
+            echo.
+            pause
+            exit /b 1
+        )
+            
+        "%PY_EMB_DIR%\Scripts\pip.exe" install --upgrade --no-warn-script-location --disable-pip-version-check -r "%REQ_FILE%"
+        if errorlevel 1 (
+            echo.
+            echo Failed to install dependencies from %REQ_FILE%.
+            echo.
+            pause
+            exit /b 1
+        )
     )
 ) else (
     echo Warning: %REQ_FILE% not found. Skipping dependency install.

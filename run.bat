@@ -4,21 +4,21 @@ setlocal EnableExtensions
 rem Change to the directory of this script
 cd /d "%~dp0"
 
-set "VENV_DIR=venv"
+set "PY_EMB_DIR=python"
+set "PY_EXE=%PY_EMB_DIR%\python.exe"
 set "ENTRY_FILE=ReDustX.py"
 
-rem Launch using existing virtual environment
-if not exist "%VENV_DIR%\Scripts\python.exe" (
+rem Launch using the embedded Python
+if not exist "%PY_EXE%" (
     echo.
-    echo Virtual environment not found at "%VENV_DIR%".
-    echo Please run install.bat first to set up dependencies.
+    echo Embedded Python not found at "%PY_EXE%".
+    echo Please restore the python folder.
     echo.
     pause
     exit /b 1
 )
 
-rem Launch the entry file
-"%VENV_DIR%\Scripts\python.exe" "%ENTRY_FILE%"
+"%PY_EXE%" "%ENTRY_FILE%"
 set "RET=%errorlevel%"
 echo.
 pause
