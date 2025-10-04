@@ -369,7 +369,7 @@ def associate_mods_with_bundles(asset_bundles, mods_files):
 
     if unmatched_mods:
         print()
-        print(f" \033[33mCould not find matching asset bundles for the following files:\033[0m")
+        print(" \033[33mCould not find matching asset bundles for the following files:\033[0m")
         for mod_filename, mod_filepath in unmatched_mods.items():
             print(f" - {mod_filepath}")
         print()
@@ -400,7 +400,7 @@ def astc_encode_image(file_path, block):
         return data
     except Exception as e:
         print()
-        print(f" \033[31mAn error occured compressing the textures\033[0m")
+        print(" \033[31mAn error occured compressing the textures\033[0m")
         print()
         raise(e)
 
@@ -535,12 +535,12 @@ def convert_json_mods(skip_blurb=False):
             
     if errored_files:
         print()
-        print(f" \033[31mA fatal error occured while trying to convert the following files:\033[0m")
+        print(" \033[31mA fatal error occured while trying to convert the following files:\033[0m")
         for file, error in errored_files.items():
             print(f" - {file}")
             print(f"   {error}")
             print()
-        print(f" Please send a bug report on Discord about this.")
+        print(" Please open an issue in the repository or contact me via Discord about this.")
         print()
         input(" Press any key...")
         
@@ -549,7 +549,7 @@ def convert_json_mods(skip_blurb=False):
     print(" You can now restart the repacking process.\033[0m")
     print()
     print(" Note that this tool is still experimental and might not work for every mod.")
-    print(" If you have issues with some automatically converted mods, send a bug report on Discord.")
+    print(" If you have issues with some automatically converted mods, open an issue in the repository or contact me via Discord.")
     print()
     input(" Press any key...")
     return
@@ -568,6 +568,8 @@ def show_help():
     print()
     print(" 4. Enjoy.")
     print()
+    print(" Note: if it still doesn't work open an issue in the repository or contact Jelosus1 in Discord")
+    print()
     input(" Press any key...")
 
 def show_about():
@@ -584,7 +586,6 @@ def show_about():
     print()
     print(" You can support Jelosus1 and their work on Ko-Fi: https://www.ko-fi.com/jelosus1")
     print(" You can support Synae and their work on Ko-Fi: https://www.ko-fi.com/synae")
-    print(" You can also join the Discord server for BrownDustX and ReDustX: https://discord.gg/wNMuw2uFVW")
     print()
     input(" Press any key...")
 
@@ -604,7 +605,7 @@ if __name__ == "__main__":
         print(f" ReDustX v{RDXVersion}")
         print(f" Created by Jelosus1 (https://www.ko-fi.com/jelosus1) and Synae (https://www.ko-fi.com/synae)")
         print()
-        print(f" THIS SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND.")
+        print(" THIS SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND.")
         print()
         print()
         
@@ -616,7 +617,7 @@ if __name__ == "__main__":
                 "message": "RDX Main Menu\n  -------------  ",
                 "pointer": "  >",
                 "qmark": " ",
-                "choices": ["Repack", "Json2Skel Converter (Beta)", "Help", "About", "Ko-Fi", "Discord", "Exit"],
+                "choices": ["Repack", "Json2Skel Converter (Beta)", "Help", "About", "Ko-Fi", "Github Repository", "Exit"],
             }
         ]
     
@@ -637,8 +638,8 @@ if __name__ == "__main__":
             webbrowser.open("https://www.ko-fi.com/synae")
             webbrowser.open("https://www.ko-fi.com/jelosus1")
             continue
-        elif answer["action"] == "Discord":
-            webbrowser.open("https://discord.gg/wNMuw2uFVW")
+        elif answer["action"] == "Github Repository":
+            webbrowser.open("https://github.com/Jelosus2/ReDustX")
             continue
         elif answer["action"] == "Exit":
             clear()
