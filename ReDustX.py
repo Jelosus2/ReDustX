@@ -34,7 +34,19 @@ asset_bundles_folder_path = base_path.joinpath(asset_bundles_folder)
 asset_bundles_modded_folder = "bundles_modded/"
 asset_bundles_modded_folder_path = base_path.joinpath(asset_bundles_modded_folder)
 
-astc_encoder_binary_path = base_path.joinpath("astc_encoder/astcenc-sse2")
+astc_encoder_dir = base_path.joinpath("astc_encoder")
+if sys.platform.startswith("win"):
+    _astc_candidates = [
+        astc_encoder_dir.joinpath("astcenc-sse2.exe"),
+        astc_encoder_dir.joinpath("astcenc-neon.exe"),
+    ]
+else:
+    _astc_candidates = [
+        astc_encoder_dir.joinpath("astcenc-sse2"),
+        astc_encoder_dir.joinpath("astcenc-neon"),
+    ]
+
+astc_encoder_binary_path = next((p for p in _astc_candidates if p.exists()), _astc_candidates[0])
 
 astc_encode_tmp_folder = "tmp/"
 astc_encode_tmp_folder_path = base_path.joinpath(astc_encode_tmp_folder)

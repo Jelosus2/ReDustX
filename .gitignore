@@ -5,6 +5,7 @@ bundles/
 astc_encoder/
 tmp/
 python/
+releases/
 bundles_modded/
 test.py
 catalog_*.json
