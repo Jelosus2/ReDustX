@@ -16,7 +16,7 @@ If you want to request a feature or report a bug, please open an issue.
 
 ## Download
 
-Download a prebuilt zip from the Releases page. Each archive contains what you need to run the program on that platform. Unzip anywhere, then proceed with the steps in the Quick Start section below.
+Download a prebuilt zip from the [Releases](https://github.com/Jelosus2/ReDustX/releases) page. Each archive contains what you need to run the program on that platform. Unzip anywhere, then proceed with the steps in the Quick Start section below.
 
 Archives available:
 - `ReDustX-win-x64.zip`  Windows 64‑bit (x86_64 / AMD64)
@@ -41,7 +41,8 @@ Archives available:
 
 Note (Linux): ensure these files are executable if needed:
 ```
-chmod +x astc_encoder/astcenc-sse2
+chmod +x astc_encoder/astcenc-sse2 # On x64 architecture
+chmod +x astc_encoder/astcenc-neon # On ARM64 architecture
 chmod +x run.sh
 chmod +x install.sh
 ```
@@ -72,8 +73,8 @@ Spine JSON exports are not repackable as‑is. If you only have JSON, use the bu
 - Could not download catalog
   - Check your internet connection and try again later.
 - ASTC encoder error
-  - Windows: ensure `astc_encoder/astcenc-sse2.exe` exists.
-  - Linux: ensure `astc_encoder/astcenc-sse2` is present and executable (`chmod +x`).
+  - Windows: ensure `astc_encoder/astcenc-sse2.exe` or `astc_encoder/astcenc-neon.exe` exists.
+  - Linux: ensure `astc_encoder/astcenc-sse2` or `astc_encoder/astcenc-neon` is present and executable (`chmod +x`).
 - JSON → SKEL conversion fails
   - Only Spine 4.1 JSON is supported at the moment; if it is 4.1 and still fails, please open an issue or contact me on Discord: `Jelosus1`.
 - “No matching bundle” for a file
