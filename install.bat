@@ -24,7 +24,7 @@ if not exist "%PY_EXE%" (
 rem Install requirements into the embedded environment
 if exist "%REQ_FILE%" (
     if exist "%PY_EMB_DIR%\Scripts\pip.exe" (
-        "%PY_EMB_DIR%\Scripts\pip.exe" install --upgrade --no-warn-script-location --disable-pip-version-check -r "%REQ_FILE%"
+        "%PY_EXE%" -m pip install --upgrade --no-warn-script-location --disable-pip-version-check -r "%REQ_FILE%"
         if errorlevel 1 (
             echo.
             echo Failed to install dependencies from %REQ_FILE%.
@@ -44,7 +44,7 @@ if exist "%REQ_FILE%" (
             exit /b 1
         )
             
-        "%PY_EMB_DIR%\Scripts\pip.exe" install --upgrade --no-warn-script-location --disable-pip-version-check -r "%REQ_FILE%"
+        "%PY_EXE%" -m pip install --upgrade --no-warn-script-location --disable-pip-version-check -r "%REQ_FILE%"
         if errorlevel 1 (
             echo.
             echo Failed to install dependencies from %REQ_FILE%.
