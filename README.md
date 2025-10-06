@@ -75,6 +75,7 @@ Spine JSON exports are not repackable as‑is. If you only have JSON, use the bu
 - ASTC encoder error
   - Windows: ensure `astc_encoder/astcenc-sse2.exe` or `astc_encoder/astcenc-neon.exe` exists.
   - Linux: ensure `astc_encoder/astcenc-sse2` or `astc_encoder/astcenc-neon` is present and executable (`chmod +x`).
+  - Make sure that the path to the png files doesn't contain non-ASCII characters such as Chinese characters.
 - JSON → SKEL conversion fails
   - Only Spine 4.1 JSON is supported at the moment; if it is 4.1 and still fails, please open an issue or contact me on Discord: `Jelosus1`.
 - “No matching bundle” for a file

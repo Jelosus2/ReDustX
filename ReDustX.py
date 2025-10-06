@@ -412,7 +412,7 @@ def astc_encode_image(file_path, block):
         return data
     except Exception as e:
         print()
-        print(" \033[31mAn error occured compressing the textures\033[0m")
+        print(" \033[31mAn error occured compressing the textures, make sure the path to the png files doesn't contain non-ASCII characters such as Chinese characters\033[0m")
         print()
         raise(e)
 
