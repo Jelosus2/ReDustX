@@ -12,15 +12,16 @@ import UnityPy
 import webbrowser
 import subprocess
 from InquirerPy import prompt
-from PIL import Image
+from PIL import Image, ImageFile
 from tqdm import tqdm
 from json_to_skel import json_to_skel
 from pathlib import Path
 
 import maintenance_info_pb2
 
-RDXVersion = '1.0.0'
+RDXVersion = '1.0.1'
 UnityPy.config.FALLBACK_UNITY_VERSION = '2022.3.22f1'
+ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Folders and paths
 base_path = Path(__file__).parent
