@@ -19,7 +19,7 @@ from pathlib import Path
 
 import maintenance_info_pb2
 
-RDXVersion = '1.0.1'
+RDXVersion = '1.0.2'
 UnityPy.config.FALLBACK_UNITY_VERSION = '2022.3.22f1'
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -275,7 +275,7 @@ def parse_catalog(version, required_assets):
 
         if not bundle_path.exists():
             download_name = info['bundle_key'] or bundle_path.name
-            download_name = re.sub(r'_[a-f0-9]+(?=\.bundle)', '', download_name)
+            # download_name = re.sub(r'_[a-f0-9]+(?=\.bundle)', '', download_name) Game uses hash in download file name now (v2.9.18)
             url = f"https://cdn.bd2.pmang.cloud/ServerData/Android/{quality}/{version}/{download_name}"
             response = requests.get(url, stream=True)
 
