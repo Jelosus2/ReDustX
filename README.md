@@ -12,6 +12,7 @@ If you want to request a feature or report a bug, please open an issue.
 - ASTC encoding tuned per quality (HD = 4x4, SD = 8x8)
 - JSON → SKEL Converter (beta) for Spine 4.1
 - Duplicate mod detection and clear progress output
+- Does the mod contain more textures than the original? Nothing to worry about with the automatic texture merger.
 - Cross‑platform: available for both Windows and Linux
 
 ## Download
@@ -91,6 +92,7 @@ This project is only possible thanks to these libraries and tools:
 - [InquirerPy](https://github.com/kazhala/InquirerPy) — Interactive CLI prompts
 - [tqdm](https://github.com/tqdm/tqdm) — Progress bars
 - [astcenc](https://github.com/ARM-software/astc-encoder) — ASTC Texture Compressor by Arm
+- [BDroid_X](https://github.com/Ark-Repoleved/BDroid_X) — Texture merger base code
 
 Big thanks to Synae (BrownDustX author) as co‑author/collaborator on the project.
 

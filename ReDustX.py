@@ -16,15 +16,19 @@ from PIL import Image, ImageFile
 from tqdm import tqdm
 from json_to_skel import json_to_skel
 from pathlib import Path
+from texture_merger import merge_textures
 
 import maintenance_info_pb2
 
-RDXVersion = '1.0.2'
+RDXVersion = '1.1.0'
 UnityPy.config.FALLBACK_UNITY_VERSION = '2022.3.22f1'
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
 # Folders and paths
 base_path = Path(__file__).parent
+
+old_mods_folder = "old_mods/"
+old_mods_folder_path = base_path.joinpath(old_mods_folder)
 
 mods_folder = "mods/"
 mods_folder_path = base_path.joinpath(mods_folder)
@@ -377,17 +381,32 @@ def associate_mods_with_bundles(asset_bundles, mods_files):
                     matched_mods[bundle_path].append((mod_filename, mod_filepath))
                 
         matched_files = {mod_filename for mods in matched_mods.values() for mod_filename, _ in mods}
-        unmatched_mods = {mod_filename: mod_filepath for mod_filename, mod_filepath in mods_files.items() if mod_filename not in matched_files}
-        pbar.update(len(unmatched_mods))
+        unmatched_mods = {}
 
-    if unmatched_mods:
-        print()
-        print(" \033[33mCould not find matching asset bundles for the following files:\033[0m")
-        for mod_filename, mod_filepath in unmatched_mods.items():
-            print(f" - {mod_filepath}")
-        print()
+        for mod_filename, mod_filepath in mods_files.items():
+            base = re.sub(r"_\d+(?=\.png$)", "", mod_filename)
+            if base in matched_files and mod_filename not in matched_files:
+                pbar.update(1)
+                if base not in unmatched_mods.keys():
+                    unmatched_mods[base] = str(Path(mod_filepath).parent)
         
-    return matched_mods
+    return matched_mods, unmatched_mods
+
+def merge_spine_textures(unmatched_mods):
+    if not unmatched_mods:
+        return None
+
+    errors = []
+    with tqdm(desc=" Merging spine textures...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=len(unmatched_mods)) as pbar:
+        for mod_directory in unmatched_mods.values():
+            res_code = merge_textures(Path(mod_directory), old_mods_folder_path)
+            pbar.update(1)
+            if res_code == -1:
+                errors.append(f"{mod_directory} - atlas file not found.")
+            if res_code == -2:
+                errors.append(f"{mod_directory} - Couldn't read atlas file.")
+
+    return errors   
 
 def clear_modded_folder():
     """Delete all files in the modded folder."""
@@ -766,11 +785,24 @@ if __name__ == "__main__":
             input(" Press any key...")
             continue
 
-        matched_mods = associate_mods_with_bundles(asset_bundles, mods_files)
+        matched_mods, unmatched_mods = associate_mods_with_bundles(asset_bundles, mods_files)
     
         if not matched_mods:
             print()
             print(" \033[31mCouldn't find any corresponding asset bundle to repack the mods into. Aborting.\033[0m")
+            print()
+            input(" Press any key...")
+            continue
+
+        errors = merge_spine_textures(unmatched_mods)
+
+        if errors:
+            print()
+            print(" \033[31mSome textures could not be merged:\033[0m")
+            for error in errors:
+                print(f"- {error}")
+            print()
+            print(" Please try repacking again after fixing the errors with the faulty mods.")
             print()
             input(" Press any key...")
             continue
