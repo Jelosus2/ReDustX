@@ -159,7 +159,7 @@ def merge_textures(mod_dir_path, old_mods_dir_path):
 
     # 5. Write final Atlas file to the mod directory
     final_atlas_path = mod_dir_path.joinpath(f"{file_prefix}.atlas")
-    with open(final_atlas_path, 'w') as f:
+    with open(final_atlas_path, 'w', encoding='utf-8') as f:
         f.write('\n\n'.join(final_atlas_blocks))
     
     return 1
