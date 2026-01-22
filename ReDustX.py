@@ -20,7 +20,7 @@ from texture_merger import merge_textures
 
 import maintenance_info_pb2
 
-RDXVersion = '1.1.2'
+RDXVersion = '1.1.3'
 UnityPy.config.FALLBACK_UNITY_VERSION = '2022.3.22f1'
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
