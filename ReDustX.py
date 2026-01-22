@@ -279,9 +279,17 @@ def parse_catalog(version, required_assets):
 
         if not bundle_path.exists():
             download_name = info['bundle_key'] or bundle_path.name
-            # download_name = re.sub(r'_[a-f0-9]+(?=\.bundle)', '', download_name) Game uses hash in download file name now (v2.9.18)
             url = f"https://cdn.bd2.pmang.cloud/ServerData/Android/{quality}/{version}/{download_name}"
             response = requests.get(url, stream=True)
+
+            if (response.status_code == 404):
+                download_name = re.sub(r'_[a-f0-9]+(?=\.bundle)', '', download_name)
+                url = f"https://cdn.bd2.pmang.cloud/ServerData/Android/{quality}/{version}/{download_name}"
+                response = requests.get(url, stream=True)
+
+            if (response.status_code == 404):
+                print(f" Could not download {download_name}, please open an issue in the GitHub repository")
+                continue
 
             bundle_path.parent.mkdir(parents=True, exist_ok=True)
             with open(bundle_path, 'wb') as file:
@@ -455,7 +463,7 @@ def replace_files_in_bundles(matched_mods, quality):
                                 try:
                                     new_texture = Image.open(mod_filepath).convert('RGBA')  # Open image only once
                                 except IOError as e:
-                                    errors.append(f" Failed to open image file {mod_filepath}")
+                                    errors.append(f" Failed to open image file {mod_filepath}. Error: {e}")
                                     continue  # Skip if there's an issue with the image
 
                                 astc_data = astc_encode_image(mod_filepath, "4x4" if quality == "HD" else "8x8")
