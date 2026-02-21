@@ -20,7 +20,7 @@ from texture_merger import merge_textures
 
 import maintenance_info_pb2
 
-RDXVersion = '1.1.3'
+RDXVersion = '1.1.5'
 UnityPy.config.FALLBACK_UNITY_VERSION = '2022.3.22f1'
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -422,7 +422,7 @@ def associate_mods_with_bundles(asset_bundles, mods_files):
             base = re.sub(r"_\d+(?=\.png$)", "", mod_filename)
             if base not in mod_pngs_by_base:
                 mod_pngs_by_base[base] = {"directory": str(Path(mod_filepath).parent), "files": []}
-                
+
             mod_pngs_by_base[base]["files"].append(mod_filename)
 
         for base in mod_pngs_by_base.keys():
