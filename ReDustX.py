@@ -377,6 +377,16 @@ def parse_mods():
 
     return mods_files, duplicate_files, json_to_skel_files
 
+def spine_texture_sort_key(filename):
+    if filename.endswith(".png") and not re.search(r'_(\d+)\.png$', filename):
+        return 1
+    
+    match = re.search(r'_(\d+)\.png$', filename)
+    if match:
+        return int(match.group(1))
+    
+    return float('inf')
+
 def associate_mods_with_bundles(asset_bundles, mods_files):
     matched_mods = {}
     with tqdm(desc=" Preparing files associations...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=len(mods_files)) as pbar:
@@ -389,14 +399,43 @@ def associate_mods_with_bundles(asset_bundles, mods_files):
                     matched_mods[bundle_path].append((mod_filename, mod_filepath))
                 
         matched_files = {mod_filename for mods in matched_mods.values() for mod_filename, _ in mods}
-        unmatched_mods = {}
+        matched_pngs_by_base = {}
 
-        for mod_filename, mod_filepath in mods_files.items():
+        for mod_filename in matched_files:
+            if not mod_filename.endswith('.png'):
+                continue
+
             base = re.sub(r"_\d+(?=\.png$)", "", mod_filename)
-            if base in matched_files and mod_filename not in matched_files:
-                pbar.update(1)
-                if base not in unmatched_mods.keys():
-                    unmatched_mods[base] = str(Path(mod_filepath).parent)
+            if base not in matched_pngs_by_base:
+                matched_pngs_by_base[base] = []
+
+            matched_pngs_by_base[base].append(mod_filename)
+
+        for base in matched_pngs_by_base.keys():
+            matched_pngs_by_base[base].sort(key=spine_texture_sort_key)
+
+        mod_pngs_by_base = {}
+        for mod_filename, mod_filepath in mods_files.items():
+            if not mod_filename.endswith('.png'):
+                continue
+
+            base = re.sub(r"_\d+(?=\.png$)", "", mod_filename)
+            if base not in mod_pngs_by_base:
+                mod_pngs_by_base[base] = {"directory": str(Path(mod_filepath).parent), "files": []}
+                
+            mod_pngs_by_base[base]["files"].append(mod_filename)
+
+        for base in mod_pngs_by_base.keys():
+            mod_pngs_by_base[base]["files"].sort(key=spine_texture_sort_key)
+
+        unmatched_mods = {}
+        for base, mod_info in mod_pngs_by_base.items():
+            target_pngs = matched_pngs_by_base.get(base, [])
+            if target_pngs and len(mod_info["files"]) > len(target_pngs):
+                unmatched_mods[base] = {
+                    "mod_directory": mod_info["directory"],
+                    "target_pngs": target_pngs
+                }
         
     return matched_mods, unmatched_mods
 
@@ -406,8 +445,10 @@ def merge_spine_textures(unmatched_mods):
 
     errors = []
     with tqdm(desc=" Merging spine textures...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=len(unmatched_mods)) as pbar:
-        for mod_directory in unmatched_mods.values():
-            res_code = merge_textures(Path(mod_directory), old_mods_folder_path)
+        for merge_data in unmatched_mods.values():
+            mod_directory = merge_data["mod_directory"]
+            target_pngs = merge_data["target_pngs"]
+            res_code = merge_textures(Path(mod_directory), old_mods_folder_path, target_pngs)
             pbar.update(1)
             if res_code == -1:
                 errors.append(f"{mod_directory} - atlas file not found.")
@@ -814,6 +855,10 @@ if __name__ == "__main__":
             print()
             input(" Press any key...")
             continue
+
+        if unmatched_mods:
+            mods_files, _, _ = parse_mods()
+            matched_mods, _ = associate_mods_with_bundles(asset_bundles, mods_files)
 
         errors = replace_files_in_bundles(matched_mods, quality)
         

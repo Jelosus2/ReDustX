@@ -2,6 +2,16 @@ import re
 import shutil
 from PIL import Image
 
+def texture_sort_key(file_prefix, filename):
+    if filename == f"{file_prefix}.png":
+        return 1
+    
+    match = re.search(r'_(\d+)\.png$', filename)
+    if match:
+        return int(match.group(1))
+    
+    return float('inf')
+
 def parse_atlas(atlas_path):
     atlas_database = {}
     try:
@@ -36,44 +46,47 @@ def parse_atlas(atlas_path):
         
     return atlas_database
 
-def generate_operations(base_dir, file_prefix):
+def generate_operations(base_dir, file_prefix, target_pngs):
     """Automatically scans a directory and generates merge/copy operations."""
     all_files_in_dir = base_dir.iterdir()
     png_files = [f.name for f in all_files_in_dir if f.name.startswith(file_prefix) and f.name.endswith('.png')]
-
-    def sort_key(filename):
-        if filename == f"{file_prefix}.png":
-            return 1
-        match = re.search(r'_(\d+)\.png$', filename)
-        if match:
-            return int(match.group(1))
-        return float('inf')
-
-    png_files.sort(key=sort_key)
+    png_files.sort(key=lambda name: texture_sort_key(file_prefix, name))
 
     operations = []
     source_pngs_for_backup = png_files[:]
-    i = 0
-    pair_index = 1
-    while i < len(png_files):
-        if pair_index == 1:
-            output_filename = f"{file_prefix}.png"
-        else:
-            output_filename = f"{file_prefix}_{pair_index}.png"
-            
-        if i + 1 < len(png_files):
-            op = {"type": "merge", "sources": [png_files[i], png_files[i+1]], "output": output_filename}
-            operations.append(op)
-            i += 2
-        else:
-            op = {"type": "copy", "sources": [png_files[i]], "output": output_filename}
-            operations.append(op)
-            i += 1
-        pair_index += 1
+
+    target_pngs = sorted(set(target_pngs), key=lambda name: texture_sort_key(file_prefix, name))
+
+    if len(target_pngs) >= len(png_files):
+        for source_name in png_files:
+            operations.append({"type": "copy", "sources": [source_name], "output": source_name})
+        return operations, source_pngs_for_backup
+
+    for index, output_name in enumerate(target_pngs):
+        if index < len(target_pngs) - 1:
+            operations.append({"type": "copy", "sources": [png_files[index]], "output": output_name})
+            continue
+
+        remaining_sources = png_files[index:]
+        op_type = "merge" if len(remaining_sources) > 1 else "copy"
+        operations.append({"type": op_type, "sources": remaining_sources, "output": output_name})
         
     return operations, source_pngs_for_backup
 
-def merge_textures(mod_dir_path, old_mods_dir_path):
+def shift_bounds_line_x(line, x_offset):
+    if not line.strip().startswith('bounds:'):
+        return line
+
+    try:
+        parts = line.strip().split(':')
+        coords = parts[1].strip().split(',')
+        x, y, w, h = [int(c.strip()) for c in coords]
+        x += x_offset
+        return f" bounds: {x},{y},{w},{h}"
+    except Exception:
+        return line
+
+def merge_textures(mod_dir_path, old_mods_dir_path, target_pngs):
     """Processes all assets for a single mod directory in-place."""
 
     atlas_files = list(mod_dir_path.glob("*.atlas"))
@@ -84,7 +97,7 @@ def merge_textures(mod_dir_path, old_mods_dir_path):
     file_prefix = original_atlas_path.stem
 
     # 1. Generate operations and get a list of all pngs to be processed
-    operations, all_source_pngs = generate_operations(mod_dir_path, file_prefix)
+    operations, all_source_pngs = generate_operations(mod_dir_path, file_prefix, target_pngs)
     if not operations:
         return 0
 
@@ -122,39 +135,47 @@ def merge_textures(mod_dir_path, old_mods_dir_path):
                 final_atlas_blocks.append('\n'.join(new_block))
 
         elif op_type == 'merge':
-            img1_name, img2_name = sources[0], sources[1]
-            # Read from old_mods dir
-            img1_path, img2_path = str(old_dir.joinpath(img1_name)), str(old_dir.joinpath(img2_name))
-            img1 = Image.open(img1_path)
-            img2 = Image.open(img2_path)
-            w1, h1 = img1.size
-            w2, h2 = img2.size
-            
-            new_width = w1 + w2
-            new_height = max(h1, h2)
+            source_images = []
+            for image_name in sources:
+                image_path = str(old_dir.joinpath(image_name))
+                image = Image.open(image_path).convert('RGBA')
+                source_images.append((image_name, image))
+
+            widths = [image.size[0] for _, image in source_images]
+            heights = [image.size[1] for _, image in source_images]
+            new_width = sum(widths)
+            new_height = max(heights)
 
             new_img = Image.new('RGBA', (new_width, new_height))
-            new_img.paste(img1, (0, 0))
-            new_img.paste(img2, (w1, 0))
+
+            atlas_sections = []
+            filter_line = None
+            x_offset = 0
+            for image_name, image in source_images:
+                new_img.paste(image, (x_offset, 0))
+
+                original_data = atlas_db.get(image_name)
+                if original_data:
+                    if filter_line is None:
+                        filter_line = original_data['filter_line']
+
+                    if x_offset == 0:
+                        atlas_sections.append(original_data['sprites'])
+                    else:
+                        shifted_lines = [shift_bounds_line_x(line, x_offset) for line in original_data['sprites'].split('\n')]
+                        atlas_sections.append('\n'.join(shifted_lines))
+
+                x_offset += image.size[0]
+
             new_img.save(output_path)
 
-            img1_data = atlas_db.get(img1_name)
-            img2_data = atlas_db.get(img2_name)
-            if not img1_data or not img2_data: continue
+            for _, image in source_images:
+                image.close()
 
-            modified_sprites_img2 = []
-            for line in img2_data['sprites'].split('\n'):
-                if line.strip().startswith('bounds:'):
-                    try:
-                        parts = line.strip().split(':')
-                        coords = parts[1].strip().split(',')
-                        x, y, w, h = [int(c.strip()) for c in coords]
-                        x += w1
-                        modified_sprites_img2.append(f" bounds: {x},{y},{w},{h}")
-                    except: modified_sprites_img2.append(line)
-                else: modified_sprites_img2.append(line)
-            
-            new_block_content = [output_name, f" size: {new_width},{new_height}", img1_data['filter_line'], img1_data['sprites'], '\n'.join(modified_sprites_img2)]
+            if not atlas_sections:
+                continue
+
+            new_block_content = [output_name, f" size: {new_width},{new_height}", filter_line or "filter:Linear,Linear", '\n'.join(atlas_sections)]
             final_atlas_blocks.append('\n'.join(new_block_content))
 
     # 5. Write final Atlas file to the mod directory
