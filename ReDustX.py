@@ -20,7 +20,7 @@ from texture_merger import merge_textures
 
 import maintenance_info_pb2
 
-RDXVersion = '1.1.5'
+RDXVersion = '1.1.6'
 UnityPy.config.FALLBACK_UNITY_VERSION = '2022.3.22f1'
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -312,8 +312,22 @@ def clean_old_bundles(old_bundle_names, new_bundle_names):
         if not old_name in new_bundle_names:
             shutil.rmtree(asset_bundles_folder_path.joinpath(old_name))
 
+def atlas_base_key(name: str):
+    return re.sub(r"_atlas\.asset$", "", Path(name).name, flags=re.IGNORECASE).lower()
+
+def png_base_key(filename: str):
+    return re.sub(r"_\d+$", "", Path(filename).stem)
+
+def build_target_pngs(base_name: str, page_count: int):
+    if page_count <= 0:
+        return []
+    
+    return [f"{base_name}.png"] + [f"{base_name}_{i}.png" for i in range(2, page_count + 1)]
+
 def parse_asset_bundles():
     asset_bundles = {}
+    atlas_material_counts = {}
+    atlas_parse_errors = {}
     
     file_count = len(skeleton_data_bundles_paths)
     with tqdm(desc=" Parsing bundles...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=file_count) as pbar:
@@ -321,15 +335,28 @@ def parse_asset_bundles():
             pbar.update(1)
             # Load asset bundle and filter for TextAsset or Texture2D
             env = UnityPy.load(file_path)
-            bundle_content = {
-                path: obj for path, obj in env.container.items()
-                if obj.type.name in ["TextAsset", "Texture2D"] and hasattr(obj, 'path_id')
-            }
+            bundle_content = {}
+            for path, obj in env.container.items():
+                if obj.type.name in ["TextAsset", "Texture2D"] and hasattr(obj, "path_id"):
+                    bundle_content[path] = obj
+
+                if obj.type.name == "MonoBehaviour" and path.lower().endswith("_atlas.asset"):
+                    key = atlas_base_key(path)
+                    try:
+                        atlas_data = obj.read_typetree()
+                        materials = atlas_data.get("materials", [])
+                        if isinstance(materials, list):
+                            atlas_material_counts[key] = max(atlas_material_counts.get(key, 0), len(materials))
+                        else:
+                            atlas_parse_errors[key] = f"{path}: materials is not a list"
+                    except Exception as e:
+                        atlas_parse_errors[key] = f"{path}: {e}"
+
             # Only add the bundle to the dictionary if it has valid assets
             if bundle_content:
                 asset_bundles[file_path] = bundle_content
-                
-    return asset_bundles
+
+    return asset_bundles, atlas_material_counts, atlas_parse_errors
 
 def parse_mods():
     rename_rules = {
@@ -387,8 +414,11 @@ def spine_texture_sort_key(filename):
     
     return float('inf')
 
-def associate_mods_with_bundles(asset_bundles, mods_files):
+def associate_mods_with_bundles(asset_bundles, mods_files, atlas_material_counts, atlas_parse_errors = {}):
     matched_mods = {}
+    unmatched_mods = {}
+    blocking_warnings = []
+    
     with tqdm(desc=" Preparing files associations...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=len(mods_files)) as pbar:
         for bundle_path, bundle_content in asset_bundles.items():
             for mod_filename, mod_filepath in mods_files.items():
@@ -398,46 +428,38 @@ def associate_mods_with_bundles(asset_bundles, mods_files):
                         matched_mods[bundle_path] = []
                     matched_mods[bundle_path].append((mod_filename, mod_filepath))
                 
-        matched_files = {mod_filename for mods in matched_mods.values() for mod_filename, _ in mods}
-        matched_pngs_by_base = {}
-
-        for mod_filename in matched_files:
-            if not mod_filename.endswith('.png'):
-                continue
-
-            base = re.sub(r"_\d+(?=\.png$)", "", mod_filename)
-            if base not in matched_pngs_by_base:
-                matched_pngs_by_base[base] = []
-
-            matched_pngs_by_base[base].append(mod_filename)
-
-        for base in matched_pngs_by_base.keys():
-            matched_pngs_by_base[base].sort(key=spine_texture_sort_key)
-
         mod_pngs_by_base = {}
         for mod_filename, mod_filepath in mods_files.items():
-            if not mod_filename.endswith('.png'):
+            if not mod_filename.endswith(".png"):
                 continue
-
-            base = re.sub(r"_\d+(?=\.png$)", "", mod_filename)
+            base = png_base_key(mod_filename)
             if base not in mod_pngs_by_base:
                 mod_pngs_by_base[base] = {"directory": str(Path(mod_filepath).parent), "files": []}
-
             mod_pngs_by_base[base]["files"].append(mod_filename)
 
         for base in mod_pngs_by_base.keys():
             mod_pngs_by_base[base]["files"].sort(key=spine_texture_sort_key)
 
-        unmatched_mods = {}
         for base, mod_info in mod_pngs_by_base.items():
-            target_pngs = matched_pngs_by_base.get(base, [])
-            if target_pngs and len(mod_info["files"]) > len(target_pngs):
+            expected_count = atlas_material_counts.get(base.lower())
+            mod_count = len(mod_info["files"])
+
+            if mod_count <= 1:
+                continue
+
+            if expected_count is None:
+                err = atlas_parse_errors.get(base.lower())
+                if err:
+                    blocking_warnings.append(f"{base} - failed to read Atlas MonoBehaviour ({err})")
+                continue
+
+            if mod_count > expected_count:
                 unmatched_mods[base] = {
                     "mod_directory": mod_info["directory"],
-                    "target_pngs": target_pngs
+                    "target_pngs": build_target_pngs(base, expected_count),
                 }
         
-    return matched_mods, unmatched_mods
+    return matched_mods, unmatched_mods, blocking_warnings
 
 def merge_spine_textures(unmatched_mods):
     if not unmatched_mods:
@@ -825,7 +847,7 @@ if __name__ == "__main__":
         if catalog == 1:
             clean_old_bundles(old_bundle_names, new_bundle_names)
 
-        asset_bundles = parse_asset_bundles()
+        asset_bundles, atlas_material_counts, atlas_parse_errors  = parse_asset_bundles()
     
         if not asset_bundles:
             print()
@@ -834,7 +856,17 @@ if __name__ == "__main__":
             input(" Press any key...")
             continue
 
-        matched_mods, unmatched_mods = associate_mods_with_bundles(asset_bundles, mods_files)
+        matched_mods, unmatched_mods, blocking_warnings  = associate_mods_with_bundles(
+            asset_bundles, mods_files, atlas_material_counts, atlas_parse_errors
+        )
+
+        if blocking_warnings:
+            print("\n \033[31mCould not determine expected texture pages for:\033[0m")
+            for w in blocking_warnings:
+                print(f"- {w}")
+            print("\n Aborting to avoid incorrect repack.\n")
+            input(" Press any key...")
+            continue
     
         if not matched_mods:
             print()
@@ -858,7 +890,7 @@ if __name__ == "__main__":
 
         if unmatched_mods:
             mods_files, _, _ = parse_mods()
-            matched_mods, _ = associate_mods_with_bundles(asset_bundles, mods_files)
+            matched_mods, _, _ = associate_mods_with_bundles(asset_bundles, mods_files, atlas_material_counts)
 
         errors = replace_files_in_bundles(matched_mods, quality)
         
