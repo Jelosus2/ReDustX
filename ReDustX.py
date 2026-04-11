@@ -20,7 +20,7 @@ from texture_merger import merge_textures
 
 import maintenance_info_pb2
 
-RDXVersion = '1.1.6'
+RDXVersion = '1.2.0'
 UnityPy.config.FALLBACK_UNITY_VERSION = '2022.3.22f1'
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -169,13 +169,28 @@ def read_object_from_byte_array(key_data, data_index):
 def parse_catalog(version, required_assets):
     catalog = base_path.joinpath(f"catalog_{version}.json")
 
-    required_assets = {asset.lower() for asset in (required_assets or [])}
+    required_assets = {Path(asset).name.lower() for asset in (required_assets or [])}
     asset_hits = {}
     bundle_names = set()
     resolved_paths = set()
 
+    def mod_asset_stem(asset_name):
+        for suffix in (".skel.bytes", ".atlas.txt"):
+            if asset_name.endswith(suffix):
+                return asset_name[:-len(suffix)]
+        return Path(asset_name).stem
+
+    required_assets_by_stem = {}
+    for asset in required_assets:
+        stem = mod_asset_stem(asset)
+        required_assets_by_stem.setdefault(stem, set()).add(asset)
+
     with open(catalog, 'r', encoding='utf-8') as file:
         data = json.load(file)
+
+    provider_ids = data.get("m_ProviderIds", [])
+    bundle_provider = "UnityEngine.ResourceManagement.ResourceProviders.AssetBundleProvider"
+    bundle_provider_index = provider_ids.index(bundle_provider) if bundle_provider in provider_ids else -1
 
     # Decode base64 data for bucket data
     bucket_array = base64.b64decode(data['m_BucketDataString'])
@@ -231,7 +246,7 @@ def parse_catalog(version, required_assets):
         raw_key = keys[num6] if num6 < len(keys) else ''
         key = str(raw_key).lower()
 
-        if num2 == 1 and num5 >= 0:
+        if num2 == bundle_provider_index and num5 >= 0:
             temp_data = read_object_from_byte_array(extra_data, num5)
             bundle_path = asset_bundles_folder_path.joinpath(temp_data['m_BundleName'], temp_data['m_Hash'], '__data')
             bundles[m] = {
@@ -246,8 +261,22 @@ def parse_catalog(version, required_assets):
             continue
 
         asset_name = Path(key).name.lower()
-        if asset_name in required_assets and asset_name not in asset_hits:
-            asset_hits[asset_name] = (m, str(raw_key))
+        matched_assets = []
+
+        if asset_name in required_assets:
+            matched_assets.append(asset_name)
+        else:
+            char_match = re.fullmatch(r"illust_(char\d+)_\d+\.prefab", asset_name)
+            dating_match = re.fullmatch(r"(illust_dating\d+)\.prefab", asset_name)
+
+            if char_match:
+                matched_assets.extend(required_assets_by_stem.get(char_match.group(1), ()))
+            if dating_match:
+                matched_assets.extend(required_assets_by_stem.get(dating_match.group(1), ()))
+
+        for matched_asset in matched_assets:
+            if matched_asset not in asset_hits:
+                asset_hits[matched_asset] = (m, str(raw_key))
 
     def resolve_bundle_info(entry_index):
         if entry_index in bundles:
@@ -258,11 +287,10 @@ def parse_catalog(version, required_assets):
         if dep_idx < 0 or dep_idx >= len(dependency_map):
             return None
         deps = dependency_map[dep_idx] or []
-        for dep_entry in deps:
-            info = bundles.get(dep_entry)
-            if info:
-                return info
-        return None
+        if not deps:
+            return None
+        info = bundles.get(deps[0])
+        return info if info else None
 
     for asset_name in sorted(required_assets):
         entry_info = asset_hits.get(asset_name)
@@ -313,16 +341,73 @@ def clean_old_bundles(old_bundle_names, new_bundle_names):
             shutil.rmtree(asset_bundles_folder_path.joinpath(old_name))
 
 def atlas_base_key(name: str):
-    return re.sub(r"_atlas\.asset$", "", Path(name).name, flags=re.IGNORECASE).lower()
+    name = Path(name).name.lower()
+    return re.sub(r"_atlas(?:\.asset)?$", "", name, flags=re.IGNORECASE)
 
 def png_base_key(filename: str):
-    return re.sub(r"_\d+$", "", Path(filename).stem)
+    return re.sub(r"_\d+$", "", Path(filename).stem).lower()
 
 def build_target_pngs(base_name: str, page_count: int):
     if page_count <= 0:
         return []
     
     return [f"{base_name}.png"] + [f"{base_name}_{i}.png" for i in range(2, page_count + 1)]
+
+def get_object_name(obj):
+    try:
+        data = obj.read()
+        return str(getattr(data, "m_Name", "") or "").lower()
+    except Exception:
+        return ""
+
+def get_repack_match_names(path, obj):
+    match_names = set()
+    path_name = Path(path).name.lower() if path else ""
+    object_name = get_object_name(obj)
+
+    if obj.type.name == "TextAsset":
+        for name in filter(None, (path_name, object_name)):
+            match_names.add(name)
+            if name.endswith(".skel"):
+                match_names.add(f"{name}.bytes")
+            elif name.endswith(".atlas"):
+                match_names.add(f"{name}.txt")
+
+    elif obj.type.name == "Texture2D":
+        for name in filter(None, (path_name, object_name)):
+            match_names.add(name)
+            if "." not in Path(name).name:
+                match_names.add(f"{name}.png")
+
+    return match_names
+
+def iter_repackable_objects(env):
+    seen_path_ids = set()
+
+    for path, obj in env.container.items():
+        if not hasattr(obj, "path_id") or obj.path_id in seen_path_ids:
+            continue
+        if obj.type.name not in ["TextAsset", "Texture2D"]:
+            continue
+
+        seen_path_ids.add(obj.path_id)
+        yield path, obj
+
+    for obj in env.objects:
+        if not hasattr(obj, "path_id") or obj.path_id in seen_path_ids:
+            continue
+        if obj.type.name not in ["TextAsset", "Texture2D"]:
+            continue
+
+        seen_path_ids.add(obj.path_id)
+        yield "", obj
+
+def collect_bundle_assets(env):
+    bundle_assets = {}
+    for path, obj in iter_repackable_objects(env):
+        for match_name in get_repack_match_names(path, obj):
+            bundle_assets.setdefault(match_name, obj)
+    return bundle_assets
 
 def parse_asset_bundles():
     asset_bundles = {}
@@ -333,13 +418,22 @@ def parse_asset_bundles():
     with tqdm(desc=" Parsing bundles...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=file_count) as pbar:
         for file_path in skeleton_data_bundles_paths:
             pbar.update(1)
-            # Load asset bundle and filter for TextAsset or Texture2D
             env = UnityPy.load(file_path)
-            bundle_content = {}
-            for path, obj in env.container.items():
-                if obj.type.name in ["TextAsset", "Texture2D"] and hasattr(obj, "path_id"):
-                    bundle_content[path] = obj
 
+            bundle_content = set()
+            texture_page_counts = {}
+
+            for path, obj in iter_repackable_objects(env):
+                match_names = get_repack_match_names(path, obj)
+                bundle_content.update(match_names)
+
+                if obj.type.name == "Texture2D":
+                    png_name = next((name for name in match_names if name.endswith(".png")), None)
+                    if png_name:
+                        base = png_base_key(png_name)
+                        texture_page_counts[base] = texture_page_counts.get(base, 0) + 1
+
+            for path, obj in env.container.items():
                 if obj.type.name == "MonoBehaviour" and path.lower().endswith("_atlas.asset"):
                     key = atlas_base_key(path)
                     try:
@@ -352,11 +446,14 @@ def parse_asset_bundles():
                     except Exception as e:
                         atlas_parse_errors[key] = f"{path}: {e}"
 
-            # Only add the bundle to the dictionary if it has valid assets
+            for base, count in texture_page_counts.items():
+                atlas_material_counts[base] = max(atlas_material_counts.get(base, 0), count)
+
             if bundle_content:
                 asset_bundles[file_path] = bundle_content
 
     return asset_bundles, atlas_material_counts, atlas_parse_errors
+
 
 def parse_mods():
     rename_rules = {
@@ -420,14 +517,18 @@ def associate_mods_with_bundles(asset_bundles, mods_files, atlas_material_counts
     blocking_warnings = []
     
     with tqdm(desc=" Preparing files associations...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=len(mods_files)) as pbar:
-        for bundle_path, bundle_content in asset_bundles.items():
-            for mod_filename, mod_filepath in mods_files.items():
-                if mod_filename in bundle_content:
-                    pbar.update(1)
+        for mod_filename, mod_filepath in mods_files.items():
+            mod_key = mod_filename.lower()
+
+            for bundle_path, bundle_content in asset_bundles.items():
+                if mod_key in bundle_content:
                     if bundle_path not in matched_mods:
                         matched_mods[bundle_path] = []
                     matched_mods[bundle_path].append((mod_filename, mod_filepath))
-                
+                    break
+
+            pbar.update(1)
+
         mod_pngs_by_base = {}
         for mod_filename, mod_filepath in mods_files.items():
             if not mod_filename.endswith(".png"):
@@ -516,48 +617,59 @@ def replace_files_in_bundles(matched_mods, quality):
     with tqdm(desc=" Repacking assets...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=file_count) as pbar:
         for bundle_path, mods in matched_mods.items():
             env = UnityPy.load(bundle_path)
-            for mod_filename, mod_filepath in mods:
-                for path, obj in env.container.items():
-                    if path == mod_filename:
-                        try:
-                            data = obj.read()
-                            # Replace content with the mod file
-                            if obj.type.name == "Texture2D":
-                                try:
-                                    new_texture = Image.open(mod_filepath).convert('RGBA')  # Open image only once
-                                except IOError as e:
-                                    errors.append(f" Failed to open image file {mod_filepath}. Error: {e}")
-                                    continue  # Skip if there's an issue with the image
+            bundle_assets = collect_bundle_assets(env)
 
-                                astc_data = astc_encode_image(mod_filepath, "4x4" if quality == "HD" else "8x8")
-                                data.m_Width = new_texture.width
-                                data.m_Height = new_texture.height
-                                data.m_TextureFormat = UnityPy.enums.TextureFormat.ASTC_RGB_4x4 if quality == "HD" else UnityPy.enums.TextureFormat.ASTC_RGB_8x8
-                                data.image_data = astc_data
-                                data.m_CompleteImageSize = len(astc_data)
-                                data.m_MipCount = 1
-                                data.m_StreamData.offset = 0
-                                data.m_StreamData.size = 0
-                                data.m_StreamData.path = ""
-                            elif obj.type.name == "TextAsset":
-                                with open(mod_filepath, "rb") as f:
-                                    data.m_Script = f.read().decode(errors="surrogateescape")
-                            else:
-                                continue
+            for mod_filename, mod_filepath in mods:
+                mod_key = mod_filename.lower()
+                obj = bundle_assets.get(mod_key)
+
+                if obj is None:
+                    errors.append(f" Could not find matching asset for {mod_filepath}")
+                    pbar.update(1)
+                    continue
+
+                try:
+                    data = obj.read()
+
+                    if obj.type.name == "Texture2D":
+                        try:
+                            new_texture = Image.open(mod_filepath).convert('RGBA')
+                        except IOError as e:
+                            errors.append(f" Failed to open image file {mod_filepath}. Error: {e}")
                             pbar.update(1)
-                            data.save()
-                        except Exception as e:
-                            pbar.close()
-                            print()
-                            print(f" \033[31mAn error occured with {mod_filepath}\033[0m")
-                            print()
-                            raise(e)
+                            continue
+
+                        astc_data = astc_encode_image(mod_filepath, "4x4" if quality == "HD" else "8x8")
+                        data.m_Width = new_texture.width
+                        data.m_Height = new_texture.height
+                        data.m_TextureFormat = UnityPy.enums.TextureFormat.ASTC_RGB_4x4 if quality == "HD" else UnityPy.enums.TextureFormat.ASTC_RGB_8x8
+                        data.image_data = astc_data
+                        data.m_CompleteImageSize = len(astc_data)
+                        data.m_MipCount = 1
+                        data.m_StreamData.offset = 0
+                        data.m_StreamData.size = 0
+                        data.m_StreamData.path = ""
+
+                    elif obj.type.name == "TextAsset":
+                        with open(mod_filepath, "rb") as f:
+                            data.m_Script = f.read().decode(errors="surrogateescape")
+
+                    else:
+                        pbar.update(1)
+                        continue
+
+                    data.save()
+                    pbar.update(1)
+
+                except Exception as e:
+                    pbar.close()
+                    print()
+                    print(f" \033[31mAn error occured with {mod_filepath}\033[0m")
+                    print()
+                    raise(e)
                     
-            # Get the relative path from the original bundles folder
             relative_path = Path(bundle_path).relative_to(asset_bundles_folder_path)
-            # Create the full path in the modded folder
             modded_bundle_path = asset_bundles_modded_folder_path.joinpath(relative_path)
-            # Ensure the directories exist
             modded_folder = modded_bundle_path.parent
             modded_folder.mkdir(parents=True, exist_ok=True)
             
