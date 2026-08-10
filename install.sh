@@ -42,6 +42,11 @@ if [[ ! -f "${VENV_DIR}/bin/python" ]]; then
   fi
 fi
 
+if ! "${VENV_DIR}/bin/python" -m pip install --upgrade pip setuptools wheel; then
+  echo "Failed to upgrade pip, setuptools, and wheel."
+  exit 1
+fi
+
 if [[ -f "${REQ_FILE}" ]]; then
   if ! "${VENV_DIR}/bin/python" -m pip install -r "${REQ_FILE}"; then
     echo "Failed to install dependencies from ${REQ_FILE}."
