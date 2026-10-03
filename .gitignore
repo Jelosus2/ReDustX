@@ -10,3 +10,4 @@ bundles_modded/
 old_mods/
 test.py
 catalog_*.json
+.vscode/

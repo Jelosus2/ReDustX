@@ -11,6 +11,7 @@ import sys
 import UnityPy
 import webbrowser
 import subprocess
+import tempfile
 from InquirerPy import prompt
 from PIL import Image, ImageFile
 from tqdm import tqdm
@@ -20,7 +21,7 @@ from texture_merger import merge_textures
 
 import maintenance_info_pb2
 
-RDXVersion = '1.2.0'
+RDXVersion = '1.2.2'
 UnityPy.config.FALLBACK_UNITY_VERSION = '2022.3.22f1'
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -166,13 +167,15 @@ def read_object_from_byte_array(key_data, data_index):
 
     return None
 
-def parse_catalog(version, required_assets):
+def parse_catalog(version, required_assets, quality):
     catalog = base_path.joinpath(f"catalog_{version}.json")
 
     required_assets = {Path(asset).name.lower() for asset in (required_assets or [])}
     asset_hits = {}
+    prefab_stems = {}
     bundle_names = set()
     resolved_paths = set()
+    failed_paths = set()
 
     def mod_asset_stem(asset_name):
         for suffix in (".skel.bytes", ".atlas.txt"):
@@ -189,6 +192,7 @@ def parse_catalog(version, required_assets):
         data = json.load(file)
 
     provider_ids = data.get("m_ProviderIds", [])
+    internal_ids = data.get("m_InternalIds", [])
     bundle_provider = "UnityEngine.ResourceManagement.ResourceProviders.AssetBundleProvider"
     bundle_provider_index = provider_ids.index(bundle_provider) if bundle_provider in provider_ids else -1
 
@@ -226,7 +230,7 @@ def parse_catalog(version, required_assets):
     entries = []
 
     for m in range(number_of_entries):
-        #num1 = read_int32_from_byte_array(entry_data, index)
+        num1 = read_int32_from_byte_array(entry_data, index)
         index += 4
         num2 = read_int32_from_byte_array(entry_data, index)
         index += 4
@@ -249,10 +253,13 @@ def parse_catalog(version, required_assets):
         if num2 == bundle_provider_index and num5 >= 0:
             temp_data = read_object_from_byte_array(extra_data, num5)
             bundle_path = asset_bundles_folder_path.joinpath(temp_data['m_BundleName'], temp_data['m_Hash'], '__data')
+            internal_id = internal_ids[num1] if 0 <= num1 < len(internal_ids) else ""
+            version_marker = "/{BDNetwork.CdnInfo.Version}/"
+            download_name = internal_id.split(version_marker, 1)[-1] if version_marker in internal_id else str(raw_key)
             bundles[m] = {
                 'bundle_name': temp_data['m_BundleName'],
                 'path': str(bundle_path),
-                'bundle_key': str(raw_key),
+                'download_name': download_name,
                 'size': temp_data['m_BundleSize']
             }
             continue
@@ -266,13 +273,21 @@ def parse_catalog(version, required_assets):
         if asset_name in required_assets:
             matched_assets.append(asset_name)
         else:
-            char_match = re.fullmatch(r"illust_(char\d+)_\d+\.prefab", asset_name)
-            dating_match = re.fullmatch(r"(illust_dating\d+)\.prefab", asset_name)
+            char_match = re.fullmatch(r"illust_(char\d+)(?:_[a-z0-9]+)*\.prefab", asset_name)
+            dating_match = re.fullmatch(r"(illust_dating\d+)(?:_[a-z0-9]+)*\.prefab", asset_name)
 
             if char_match:
-                matched_assets.extend(required_assets_by_stem.get(char_match.group(1), ()))
+                stem = char_match.group(1)
+                assets = required_assets_by_stem.get(stem, ())
+                matched_assets.extend(assets)
+                if assets:
+                    prefab_stems.setdefault(stem, set()).add(Path(asset_name).stem)
             if dating_match:
-                matched_assets.extend(required_assets_by_stem.get(dating_match.group(1), ()))
+                stem = dating_match.group(1)
+                assets = required_assets_by_stem.get(stem, ())
+                matched_assets.extend(assets)
+                if assets:
+                    prefab_stems.setdefault(stem, set()).add(Path(asset_name).stem)
 
         for matched_asset in matched_assets:
             if matched_asset not in asset_hits:
@@ -305,18 +320,17 @@ def parse_catalog(version, required_assets):
         bundle_names.add(info['bundle_name'])
         bundle_path = Path(info['path'])
 
+        if bundle_path in failed_paths:
+            continue
+
         if not bundle_path.exists():
-            download_name = info['bundle_key'] or bundle_path.name
+            download_name = info['download_name']
             url = f"https://cdn.bd2.pmang.cloud/ServerData/Android/{quality}/{version}/{download_name}"
             response = requests.get(url, stream=True)
 
-            if (response.status_code == 404):
-                download_name = re.sub(r'_[a-f0-9]+(?=\.bundle)', '', download_name)
-                url = f"https://cdn.bd2.pmang.cloud/ServerData/Android/{quality}/{version}/{download_name}"
-                response = requests.get(url, stream=True)
-
-            if (response.status_code == 404):
-                print(f" Could not download {download_name}, please open an issue in the GitHub repository")
+            if response.status_code != 200:
+                print(f" Could not download {download_name} (HTTP {response.status_code})")
+                failed_paths.add(bundle_path)
                 continue
 
             bundle_path.parent.mkdir(parents=True, exist_ok=True)
@@ -332,7 +346,7 @@ def parse_catalog(version, required_assets):
             skeleton_data_bundles_paths.append(str(bundle_path))
             resolved_paths.add(bundle_path)
 
-    return list(bundle_names)
+    return list(bundle_names), prefab_stems
 
 def clean_old_bundles(old_bundle_names, new_bundle_names):
     print(" Cleaning old bundles...")
@@ -346,6 +360,31 @@ def atlas_base_key(name: str):
 
 def png_base_key(filename: str):
     return re.sub(r"_\d+$", "", Path(filename).stem).lower()
+
+
+def resolve_mod_asset_name(mod_filename, bundle_content, prefab_stems):
+    mod_key = mod_filename.lower()
+    if mod_key in bundle_content:
+        return mod_key
+
+    if mod_key.endswith(".png"):
+        base = png_base_key(mod_key)
+    elif mod_key.endswith(".skel.bytes"):
+        base = mod_key[:-len(".skel.bytes")]
+    elif mod_key.endswith(".atlas.txt"):
+        base = mod_key[:-len(".atlas.txt")]
+    else:
+        return None
+
+    suffix = mod_key[len(base):]
+    candidates = set()
+    for prefab_stem in prefab_stems.get(base, ()):
+        candidates.add(prefab_stem + suffix)
+        if prefab_stem.startswith("illust_char"):
+            candidates.add(prefab_stem[len("illust_"):] + suffix)
+
+    matches = candidates.intersection(bundle_content)
+    return next(iter(matches)) if len(matches) == 1 else None
 
 def build_target_pngs(base_name: str, page_count: int):
     if page_count <= 0:
@@ -511,20 +550,20 @@ def spine_texture_sort_key(filename):
     
     return float('inf')
 
-def associate_mods_with_bundles(asset_bundles, mods_files, atlas_material_counts, atlas_parse_errors = {}):
+def associate_mods_with_bundles(asset_bundles, mods_files, atlas_material_counts, atlas_parse_errors = {}, prefab_stems = None):
     matched_mods = {}
     unmatched_mods = {}
     blocking_warnings = []
+    prefab_stems = prefab_stems or {}
     
     with tqdm(desc=" Preparing files associations...", ascii=" ##########", bar_format="{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}", colour="green", total=len(mods_files)) as pbar:
         for mod_filename, mod_filepath in mods_files.items():
-            mod_key = mod_filename.lower()
-
             for bundle_path, bundle_content in asset_bundles.items():
-                if mod_key in bundle_content:
+                asset_name = resolve_mod_asset_name(mod_filename, bundle_content, prefab_stems)
+                if asset_name:
                     if bundle_path not in matched_mods:
                         matched_mods[bundle_path] = []
-                    matched_mods[bundle_path].append((mod_filename, mod_filepath))
+                    matched_mods[bundle_path].append((mod_filename, mod_filepath, asset_name))
                     break
 
             pbar.update(1)
@@ -543,6 +582,15 @@ def associate_mods_with_bundles(asset_bundles, mods_files, atlas_material_counts
 
         for base, mod_info in mod_pngs_by_base.items():
             expected_count = atlas_material_counts.get(base.lower())
+            if expected_count is None:
+                alias_counts = set()
+                for prefab_stem in prefab_stems.get(base, ()):
+                    alias_counts.add(atlas_material_counts.get(prefab_stem))
+                    if prefab_stem.startswith("illust_char"):
+                        alias_counts.add(atlas_material_counts.get(prefab_stem[len("illust_"):]))
+                alias_counts.discard(None)
+                if len(alias_counts) == 1:
+                    expected_count = alias_counts.pop()
             mod_count = len(mod_info["files"])
 
             if mod_count <= 1:
@@ -588,23 +636,19 @@ def clear_modded_folder():
 
 def astc_encode_image(file_path, block):
     file_path = Path(file_path)
-    output_path = astc_encode_tmp_folder_path.joinpath(file_path.name.replace(file_path.suffix, ".astc"))
-
-    if not astc_encode_tmp_folder_path.exists():
-        astc_encode_tmp_folder_path.mkdir(parents=True, exist_ok=True)
-
-    args = [str(astc_encoder_binary_path), "-cs", str(file_path), str(output_path), block, "-medium", "-yflip", "-decode_unorm8", "-silent"]
+    astc_encode_tmp_folder_path.mkdir(parents=True, exist_ok=True)
     try:
-        subprocess.check_call(args)
-
-        with open(output_path, "rb") as f:
-            data = f.read()[16:]
-
-        os.remove(output_path)
-        return data
+        with tempfile.TemporaryDirectory(prefix="astc_", dir=astc_encode_tmp_folder_path) as temp_dir:
+            input_path = Path(temp_dir).joinpath("input.png")
+            output_path = Path(temp_dir).joinpath("output.astc")
+            shutil.copyfile(file_path, input_path)
+            args = [str(astc_encoder_binary_path), "-cs", str(input_path), str(output_path), block, "-medium", "-yflip", "-decode_unorm8", "-silent"]
+            subprocess.check_call(args)
+            with open(output_path, "rb") as f:
+                return f.read()[16:]
     except Exception as e:
         print()
-        print(" \033[31mAn error occured compressing the textures, make sure the path to the png files doesn't contain non-ASCII characters such as Chinese characters\033[0m")
+        print(f" \033[31mAn error occurred compressing {file_path.name}: {e}\033[0m")
         print()
         raise(e)
 
@@ -619,9 +663,8 @@ def replace_files_in_bundles(matched_mods, quality):
             env = UnityPy.load(bundle_path)
             bundle_assets = collect_bundle_assets(env)
 
-            for mod_filename, mod_filepath in mods:
-                mod_key = mod_filename.lower()
-                obj = bundle_assets.get(mod_key)
+            for mod_filename, mod_filepath, asset_name in mods:
+                obj = bundle_assets.get(asset_name)
 
                 if obj is None:
                     errors.append(f" Could not find matching asset for {mod_filepath}")
@@ -954,7 +997,7 @@ if __name__ == "__main__":
         
         skeleton_data_bundles_paths = []
         old_bundle_names = [f.name for f in asset_bundles_folder_path.iterdir() if f.is_dir()]
-        new_bundle_names = parse_catalog(cdn_version, mods_files.keys())
+        new_bundle_names, prefab_stems = parse_catalog(cdn_version, mods_files.keys(), quality)
 
         if catalog == 1:
             clean_old_bundles(old_bundle_names, new_bundle_names)
@@ -969,7 +1012,7 @@ if __name__ == "__main__":
             continue
 
         matched_mods, unmatched_mods, blocking_warnings  = associate_mods_with_bundles(
-            asset_bundles, mods_files, atlas_material_counts, atlas_parse_errors
+            asset_bundles, mods_files, atlas_material_counts, atlas_parse_errors, prefab_stems
         )
 
         if blocking_warnings:
@@ -1002,7 +1045,18 @@ if __name__ == "__main__":
 
         if unmatched_mods:
             mods_files, _, _ = parse_mods()
-            matched_mods, _, _ = associate_mods_with_bundles(asset_bundles, mods_files, atlas_material_counts)
+            matched_mods, _, _ = associate_mods_with_bundles(asset_bundles, mods_files, atlas_material_counts, prefab_stems=prefab_stems)
+
+        matched_filenames = {name for mods in matched_mods.values() for name, _, _ in mods}
+        missing_filenames = sorted(set(mods_files) - matched_filenames)
+        
+        if missing_filenames:
+            print("\n \033[31mCould not find bundle assets for these mod files:\033[0m")
+            for name in missing_filenames:
+                print(f" - {mods_files[name]}")
+            print("\n Check that the mod targets the current Android game assets.\n")
+            input(" Press any key...")
+            continue
 
         errors = replace_files_in_bundles(matched_mods, quality)
         
